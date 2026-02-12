@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS score_breakdown (
     created_at TEXT DEFAULT (datetime('now'))
 );
 
--- Job listings (Phase 2, but define schema now)
+-- Job listings (Phase 2: Job Scanner & Monitoring)
 CREATE TABLE IF NOT EXISTS job_listings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -103,7 +103,8 @@ CREATE TABLE IF NOT EXISTS job_listings (
     status TEXT DEFAULT 'active' CHECK(status IN ('active', 'closed', 'applied', 'ignored')),
     relevance_score REAL DEFAULT 0,
     match_reasons TEXT,  -- JSON array of reasons
-    created_at TEXT DEFAULT (datetime('now'))
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(company_id, title, url)
 );
 
 -- Indexes

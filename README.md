@@ -1,4 +1,4 @@
-# Beacon 🔦
+# Beacon
 
 **AI-First Company Intelligence Database**
 
@@ -25,7 +25,7 @@ git clone https://github.com/michaelpawlus/beacon.git
 cd beacon
 pip install -e .
 
-# Initialize database with seed data (25+ companies)
+# Initialize database with seed data (38 companies)
 beacon init
 
 # List all companies by AI-first score
@@ -42,16 +42,76 @@ beacon export csv --output companies.csv
 beacon export json --min-score 7
 ```
 
+## Phase 2: Job Scanner
+
+Beacon now scans career pages for job listings, scores them for relevance, and generates reports.
+
+```bash
+# Install scraping dependencies
+pip install -e ".[scraping]"
+
+# Scan all career pages
+beacon scan
+
+# Scan specific company or platform
+beacon scan --company Anthropic
+beacon scan --platform greenhouse
+
+# List jobs sorted by relevance
+beacon jobs
+beacon jobs --min-relevance 7 --status active
+beacon jobs --company Anthropic
+
+# View job details
+beacon job show 42
+
+# Track application status
+beacon job apply 42
+beacon job ignore 99
+
+# Generate reports
+beacon report digest --since 2025-03-01 --min-relevance 7
+beacon report jobs --output jobs-report.md
+```
+
+### Architecture
+
+```
+beacon scan
+    │
+    ├─ Adapter Registry ─── Greenhouse API (19 companies)
+    │                    ├── Lever API (future)
+    │                    ├── Ashby API (future)
+    │                    └── Generic HTML scraper (19 companies)
+    │
+    ├─ Job Relevance Scoring
+    │   ├── Title match (40%)
+    │   ├── Keyword match (30%)
+    │   ├── Location (15%)
+    │   └── Seniority (15%)
+    │
+    └─ DB: upsert + stale marking
+```
+
+### Supported Platforms
+
+| Platform | Method | Companies |
+|----------|--------|-----------|
+| Greenhouse | Public JSON API | 19 |
+| Lever | Public JSON API | 0 (ready for additions) |
+| Ashby | Public JSON API | 0 (ready for additions) |
+| Custom | HTML scraping (JSON-LD + link heuristics) | 19 |
+
 ## Current Data
 
-The seed dataset includes 25+ companies across four tiers:
+The seed dataset includes 38 companies across four tiers:
 
 | Tier | Description | Example Companies |
 |------|-------------|-------------------|
 | 🟢 Tier 1 | AI-Native | Anthropic, Cursor, Vercel, Replit, Databricks |
 | 🔵 Tier 2 | AI-First Converts | Shopify (Tobi's mandate), Klarna, Duolingo |
 | 🟡 Tier 3 | Strong Adoption | Stripe, Notion, GitLab, Ramp, Scale AI |
-| ⚪ Tier 4 | Emerging Signals | *(research in progress)* |
+| ⚪ Tier 4 | Emerging Signals | DoorDash, Brex, Together AI, Hex |
 
 ## Scoring
 
@@ -67,8 +127,8 @@ Run `beacon show <company>` to see the full breakdown for any company.
 
 Beacon is the foundation for a larger job search automation platform:
 
-- [x] **Phase 1:** Company Intelligence Database (this repo)
-- [ ] **Phase 2:** Job Scanner — monitor career pages on target companies
+- [x] **Phase 1:** Company Intelligence Database
+- [x] **Phase 2:** Job Scanner — monitor career pages, score relevance, generate reports
 - [ ] **Phase 3:** Application Generator — auto-generate tailored resumes and cover letters
 - [ ] **Phase 4:** Professional Presence — website, GitHub, LinkedIn automation
 
@@ -86,6 +146,7 @@ Every signal needs a public, verifiable source (blog post, tweet, news article, 
 - **Python 3.11+** with type hints
 - **SQLite** — zero infrastructure, portable, version-controllable
 - **Typer + Rich** — professional CLI with beautiful output
+- **httpx + BeautifulSoup4** — career page scanning (optional)
 - **No external APIs required** — the database is the product
 
 ## License
