@@ -35,8 +35,12 @@ from beacon.db.connection import get_connection, init_db
 app = typer.Typer(help="Beacon: AI-First Company Intelligence Database")
 job_app = typer.Typer(help="Job listing operations")
 report_app = typer.Typer(help="Report generation")
+profile_app = typer.Typer(help="Professional profile management")
+application_app = typer.Typer(help="Application tracking")
 app.add_typer(job_app, name="job")
 app.add_typer(report_app, name="report")
+app.add_typer(profile_app, name="profile")
+app.add_typer(application_app, name="application")
 console = Console() if HAS_RICH else None
 
 
@@ -462,18 +466,55 @@ def job_show(job_id: int = typer.Argument(help="Job listing ID")):
 
 
 @job_app.command("apply")
-def job_apply(job_id: int = typer.Argument(help="Job listing ID")):
-    """Mark a job as applied."""
+def job_apply(
+    job_id: int = typer.Argument(help="Job listing ID"),
+    generate_materials: bool = typer.Option(False, "--generate", "-g", help="Generate resume and cover letter"),
+    notes: str = typer.Option(None, "--notes", "-n", help="Application notes"),
+):
+    """Mark a job as applied and optionally create an application record."""
     from beacon.db.jobs import update_job_status
+    from beacon.db.profile import add_application
 
     conn = get_connection()
     success = update_job_status(conn, job_id, "applied")
-    conn.close()
 
-    if success:
-        _print(f"[green]✓[/green] Job {job_id} marked as applied" if HAS_RICH else f"✓ Job {job_id} marked as applied")
-    else:
+    if not success:
         _print(f"No job found with ID {job_id}")
+        conn.close()
+        return
+
+    # Create application record
+    from datetime import datetime as dt
+    app_id = add_application(conn, job_id, status="applied",
+                              applied_date=dt.now().strftime("%Y-%m-%d"),
+                              notes=notes)
+    _print(f"[green]✓[/green] Job {job_id} marked as applied (application #{app_id})" if HAS_RICH else f"✓ Job {job_id} marked as applied (application #{app_id})")
+
+    if generate_materials:
+        _print("Generating application materials..." if not HAS_RICH else "[bold]Generating application materials...[/bold]")
+        try:
+            from beacon.materials.resume import tailor_resume
+            from beacon.materials.renderer import render_markdown
+            result = tailor_resume(conn, job_id)
+            resume_path = f"resume_{job_id}.md"
+            Path(resume_path).write_text(render_markdown(result))
+            from beacon.db.profile import update_application
+            update_application(conn, app_id, resume_path=resume_path)
+            _print(f"  [green]✓[/green] Resume saved to {resume_path}" if HAS_RICH else f"  ✓ Resume saved to {resume_path}")
+        except RuntimeError as e:
+            _print(f"  [yellow]⚠[/yellow] Resume generation skipped: {e}" if HAS_RICH else f"  ⚠ Resume generation skipped: {e}")
+        try:
+            from beacon.materials.cover_letter import generate_cover_letter
+            content = generate_cover_letter(conn, job_id)
+            cl_path = f"cover_letter_{job_id}.md"
+            Path(cl_path).write_text(content)
+            from beacon.db.profile import update_application
+            update_application(conn, app_id, cover_letter_path=cl_path)
+            _print(f"  [green]✓[/green] Cover letter saved to {cl_path}" if HAS_RICH else f"  ✓ Cover letter saved to {cl_path}")
+        except RuntimeError as e:
+            _print(f"  [yellow]⚠[/yellow] Cover letter generation skipped: {e}" if HAS_RICH else f"  ⚠ Cover letter generation skipped: {e}")
+
+    conn.close()
 
 
 @job_app.command("ignore")
@@ -532,6 +573,548 @@ def report_jobs(
         _print(f"Report written to {output}")
     else:
         print(content)
+
+
+# --- Phase 3: Profile commands ---
+
+@profile_app.command("interview")
+def profile_interview(
+    section: str = typer.Option(None, "--section", "-s", help="Interview section: work, projects, skills, education, publications"),
+):
+    """Interactive interview to build your professional profile."""
+    from beacon.interview import SECTION_LABELS, run_full_interview
+
+    if section and section not in SECTION_LABELS:
+        _print(f"Unknown section: {section}. Choose from: {', '.join(SECTION_LABELS.keys())}")
+        raise typer.Exit(1)
+
+    conn = get_connection()
+    interview_console = Console() if HAS_RICH else Console()
+    run_full_interview(interview_console, conn, section=section)
+    conn.close()
+
+
+@profile_app.command("import")
+def profile_import(
+    file_path: str = typer.Argument(help="Path to JSON file to import"),
+):
+    """Import profile data from a JSON file."""
+    from beacon.importer import import_profile
+
+    conn = get_connection()
+    try:
+        counts = import_profile(conn, file_path)
+    except (FileNotFoundError, ValueError) as e:
+        _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+        conn.close()
+        raise typer.Exit(1)
+
+    conn.close()
+
+    _print("[green]✓[/green] Profile imported:" if HAS_RICH else "✓ Profile imported:")
+    for section, count in counts.items():
+        if section != "errors":
+            _print(f"  {section}: {count}")
+    if "errors" in counts:
+        _print(f"\n[yellow]Warnings ({len(counts['errors'])}):[/yellow]" if HAS_RICH else f"\nWarnings ({len(counts['errors'])}):")
+        for err in counts["errors"]:
+            _print(f"  • {err}")
+
+
+@profile_app.command("export")
+def profile_export(
+    output: str = typer.Option(None, "--output", "-o", help="Output file path"),
+):
+    """Export profile data as JSON for backup."""
+    from beacon.importer import export_profile_json
+
+    conn = get_connection()
+    content = export_profile_json(conn)
+    conn.close()
+
+    if output:
+        Path(output).write_text(content)
+        _print(f"[green]✓[/green] Profile exported to {output}" if HAS_RICH else f"✓ Profile exported to {output}")
+    else:
+        print(content)
+
+
+@profile_app.command("show")
+def profile_show():
+    """Show full profile summary."""
+    from beacon.db.profile import get_education, get_projects, get_publications, get_skills, get_work_experiences
+
+    conn = get_connection()
+    work = get_work_experiences(conn)
+    projects = get_projects(conn)
+    skills = get_skills(conn)
+    edu = get_education(conn)
+    pubs = get_publications(conn)
+    conn.close()
+
+    if HAS_RICH:
+        console.print(Panel("[bold]Professional Profile Summary[/bold]", style="blue"))
+    else:
+        print("\nProfessional Profile Summary")
+
+    _print(f"  Work Experiences: {len(work)}")
+    _print(f"  Projects:         {len(projects)}")
+    _print(f"  Skills:           {len(skills)}")
+    _print(f"  Education:        {len(edu)}")
+    _print(f"  Publications:     {len(pubs)}")
+
+    if work:
+        _print("\n[bold]Recent Work:[/bold]" if HAS_RICH else "\nRecent Work:")
+        for exp in work[:3]:
+            current = " (current)" if not exp["end_date"] else f" — {exp['end_date']}"
+            _print(f"  • {exp['title']} at {exp['company']} ({exp['start_date']}{current})")
+
+    if skills:
+        _print(f"\n[bold]Top Skills ({len(skills)}):[/bold]" if HAS_RICH else f"\nTop Skills ({len(skills)}):")
+        for s in skills[:10]:
+            prof = f" [{s['proficiency']}]" if s["proficiency"] else ""
+            _print(f"  • {s['name']}{prof}")
+
+
+@profile_app.command("work")
+def profile_work(
+    work_id: int = typer.Argument(None, help="Work experience ID for detail view"),
+):
+    """List work experiences or show detail."""
+    from beacon.db.profile import get_work_experience_by_id, get_work_experiences
+
+    conn = get_connection()
+
+    if work_id is not None:
+        exp = get_work_experience_by_id(conn, work_id)
+        conn.close()
+        if not exp:
+            _print(f"No work experience found with ID {work_id}")
+            return
+
+        if HAS_RICH:
+            console.print(Panel(f"[bold]{exp['title']}[/bold] at {exp['company']}", style="blue"))
+        else:
+            print(f"\n{exp['title']} at {exp['company']}")
+        current = "Present" if not exp["end_date"] else exp["end_date"]
+        _print(f"  Period: {exp['start_date']} — {current}")
+        if exp["description"]:
+            _print(f"  {exp['description']}")
+        if exp["key_achievements"]:
+            _print("\n[bold]Key Achievements:[/bold]" if HAS_RICH else "\nKey Achievements:")
+            for a in json.loads(exp["key_achievements"]):
+                _print(f"  • {a}")
+        if exp["technologies"]:
+            techs = json.loads(exp["technologies"])
+            _print(f"\n  Technologies: {', '.join(techs)}")
+        if exp["metrics"]:
+            _print("\n[bold]Metrics:[/bold]" if HAS_RICH else "\nMetrics:")
+            for m in json.loads(exp["metrics"]):
+                _print(f"  • {m}")
+    else:
+        exps = get_work_experiences(conn)
+        conn.close()
+        if not exps:
+            _print("No work experiences recorded.")
+            return
+
+        if HAS_RICH:
+            table = Table(title="Work Experience")
+            table.add_column("ID", style="dim", width=4)
+            table.add_column("Company", style="bold")
+            table.add_column("Title")
+            table.add_column("Period")
+            table.add_column("Current")
+            for exp in exps:
+                current = "Yes" if not exp["end_date"] else ""
+                period = f"{exp['start_date']} — {exp['end_date'] or 'Present'}"
+                table.add_row(str(exp["id"]), exp["company"], exp["title"], period, current)
+            console.print(table)
+        else:
+            for exp in exps:
+                current = " (current)" if not exp["end_date"] else ""
+                print(f"  [{exp['id']}] {exp['title']} at {exp['company']}{current}")
+
+
+@profile_app.command("projects")
+def profile_projects(
+    project_id: int = typer.Argument(None, help="Project ID for detail view"),
+):
+    """List projects or show detail."""
+    from beacon.db.profile import get_project_by_id, get_projects
+
+    conn = get_connection()
+
+    if project_id is not None:
+        proj = get_project_by_id(conn, project_id)
+        conn.close()
+        if not proj:
+            _print(f"No project found with ID {project_id}")
+            return
+
+        if HAS_RICH:
+            console.print(Panel(f"[bold]{proj['name']}[/bold]", style="blue"))
+        else:
+            print(f"\n{proj['name']}")
+        if proj["description"]:
+            _print(f"  {proj['description']}")
+        if proj["technologies"]:
+            techs = json.loads(proj["technologies"])
+            _print(f"  Technologies: {', '.join(techs)}")
+        if proj["outcomes"]:
+            _print("\n[bold]Outcomes:[/bold]" if HAS_RICH else "\nOutcomes:")
+            for o in json.loads(proj["outcomes"]):
+                _print(f"  • {o}")
+        if proj["repo_url"]:
+            _print(f"  Repo: {proj['repo_url']}")
+        _print(f"  Public: {'Yes' if proj['is_public'] else 'No'}")
+    else:
+        projects = get_projects(conn)
+        conn.close()
+        if not projects:
+            _print("No projects recorded.")
+            return
+
+        if HAS_RICH:
+            table = Table(title="Projects")
+            table.add_column("ID", style="dim", width=4)
+            table.add_column("Name", style="bold")
+            table.add_column("Public")
+            table.add_column("Repo")
+            for p in projects:
+                table.add_row(str(p["id"]), p["name"],
+                              "Yes" if p["is_public"] else "No",
+                              p["repo_url"] or "")
+            console.print(table)
+        else:
+            for p in projects:
+                pub = " (public)" if p["is_public"] else ""
+                print(f"  [{p['id']}] {p['name']}{pub}")
+
+
+@profile_app.command("skills")
+def profile_skills():
+    """List skills grouped by category."""
+    from beacon.db.profile import get_skills
+
+    conn = get_connection()
+    skills = get_skills(conn)
+    conn.close()
+
+    if not skills:
+        _print("No skills recorded.")
+        return
+
+    if HAS_RICH:
+        table = Table(title="Skills")
+        table.add_column("Name", style="bold")
+        table.add_column("Category")
+        table.add_column("Proficiency")
+        table.add_column("Years", justify="right")
+        for s in skills:
+            table.add_row(
+                s["name"],
+                s["category"] or "",
+                s["proficiency"] or "",
+                str(s["years_experience"]) if s["years_experience"] else "",
+            )
+        console.print(table)
+    else:
+        current_cat = None
+        for s in skills:
+            cat = s["category"] or "uncategorized"
+            if cat != current_cat:
+                print(f"\n  {cat}:")
+                current_cat = cat
+            prof = f" ({s['proficiency']})" if s["proficiency"] else ""
+            print(f"    • {s['name']}{prof}")
+
+
+@profile_app.command("education")
+def profile_education():
+    """List education entries."""
+    from beacon.db.profile import get_education
+
+    conn = get_connection()
+    edu = get_education(conn)
+    conn.close()
+
+    if not edu:
+        _print("No education entries recorded.")
+        return
+
+    if HAS_RICH:
+        table = Table(title="Education")
+        table.add_column("ID", style="dim", width=4)
+        table.add_column("Institution", style="bold")
+        table.add_column("Degree")
+        table.add_column("Field")
+        table.add_column("Period")
+        for e in edu:
+            period = ""
+            if e["start_date"]:
+                period = f"{e['start_date']} — {e['end_date'] or 'Present'}"
+            table.add_row(str(e["id"]), e["institution"],
+                          e["degree"] or "", e["field_of_study"] or "", period)
+        console.print(table)
+    else:
+        for e in edu:
+            degree = f" — {e['degree']}" if e["degree"] else ""
+            field = f" in {e['field_of_study']}" if e["field_of_study"] else ""
+            print(f"  [{e['id']}] {e['institution']}{degree}{field}")
+
+
+@profile_app.command("publications")
+def profile_publications():
+    """List publications and talks."""
+    from beacon.db.profile import get_publications
+
+    conn = get_connection()
+    pubs = get_publications(conn)
+    conn.close()
+
+    if not pubs:
+        _print("No publications or talks recorded.")
+        return
+
+    if HAS_RICH:
+        table = Table(title="Publications & Talks")
+        table.add_column("ID", style="dim", width=4)
+        table.add_column("Title", style="bold")
+        table.add_column("Type")
+        table.add_column("Venue")
+        table.add_column("Date")
+        for p in pubs:
+            table.add_row(str(p["id"]), p["title"], p["pub_type"],
+                          p["venue"] or "", p["date_published"] or "")
+        console.print(table)
+    else:
+        for p in pubs:
+            venue = f" at {p['venue']}" if p["venue"] else ""
+            print(f"  [{p['id']}] [{p['pub_type']}] {p['title']}{venue}")
+
+
+@profile_app.command("stats")
+def profile_stats():
+    """Show profile completeness dashboard."""
+    from beacon.db.profile import get_education, get_projects, get_publications, get_skills, get_work_experiences
+
+    conn = get_connection()
+    work = get_work_experiences(conn)
+    projects = get_projects(conn)
+    skills = get_skills(conn)
+    edu = get_education(conn)
+    pubs = get_publications(conn)
+    conn.close()
+
+    sections = [
+        ("Work Experiences", len(work), 1),
+        ("Projects", len(projects), 2),
+        ("Skills", len(skills), 5),
+        ("Education", len(edu), 1),
+        ("Publications/Talks", len(pubs), 0),
+    ]
+
+    total = sum(count for _, count, _ in sections)
+    filled = sum(1 for _, count, minimum in sections if count >= minimum)
+    completeness = int((filled / len(sections)) * 100)
+
+    if HAS_RICH:
+        console.print(Panel(f"[bold]Profile Completeness: {completeness}%[/bold]", style="blue"))
+    else:
+        print(f"\nProfile Completeness: {completeness}%")
+
+    for label, count, minimum in sections:
+        if count >= minimum:
+            status = "[green]✓[/green]" if HAS_RICH else "✓"
+        else:
+            status = "[yellow]○[/yellow]" if HAS_RICH else "○"
+        _print(f"  {status} {label}: {count}" + (f" (need {minimum})" if count < minimum else ""))
+
+    # Skill category breakdown
+    if skills:
+        categories: dict[str, int] = {}
+        for s in skills:
+            cat = s["category"] or "uncategorized"
+            categories[cat] = categories.get(cat, 0) + 1
+        _print("\n[bold]Skill Categories:[/bold]" if HAS_RICH else "\nSkill Categories:")
+        for cat, count in sorted(categories.items()):
+            _print(f"  {cat}: {count}")
+
+
+@profile_app.command("resume")
+def profile_resume(
+    job_id: int = typer.Argument(help="Job listing ID to tailor resume for"),
+    pages: int = typer.Option(1, "--pages", "-p", help="Page limit (1 or 2)"),
+    format: str = typer.Option("markdown", "--format", "-f", help="Output format: markdown, pdf, docx"),
+    output: str = typer.Option(None, "--output", "-o", help="Output file path"),
+):
+    """Generate a tailored resume for a job listing."""
+    from beacon.materials.resume import tailor_resume
+
+    conn = get_connection()
+    try:
+        result = tailor_resume(conn, job_id, page_limit=pages)
+    except ValueError as e:
+        _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+        conn.close()
+        raise typer.Exit(1)
+    except RuntimeError as e:
+        _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+        conn.close()
+        raise typer.Exit(1)
+    conn.close()
+
+    if format == "markdown":
+        from beacon.materials.renderer import render_markdown
+        content = render_markdown(result)
+        if output:
+            Path(output).write_text(content)
+            _print(f"[green]✓[/green] Resume saved to {output}" if HAS_RICH else f"✓ Resume saved to {output}")
+        else:
+            print(content)
+    elif format == "docx":
+        from beacon.materials.renderer import render_docx
+        out_path = output or f"resume_{job_id}.docx"
+        render_docx(result, out_path)
+        _print(f"[green]✓[/green] Resume saved to {out_path}" if HAS_RICH else f"✓ Resume saved to {out_path}")
+    elif format == "pdf":
+        from beacon.materials.renderer import render_pdf
+        out_path = output or f"resume_{job_id}.pdf"
+        render_pdf(result, out_path)
+        _print(f"[green]✓[/green] Resume saved to {out_path}" if HAS_RICH else f"✓ Resume saved to {out_path}")
+    else:
+        _print(f"Unknown format: {format}. Use markdown, pdf, or docx.")
+
+
+@profile_app.command("cover-letter")
+def profile_cover_letter(
+    job_id: int = typer.Argument(help="Job listing ID"),
+    tone: str = typer.Option("professional", "--tone", "-t", help="Tone: professional, conversational, technical"),
+    output: str = typer.Option(None, "--output", "-o", help="Output file path"),
+):
+    """Generate a tailored cover letter for a job listing."""
+    from beacon.materials.cover_letter import generate_cover_letter
+
+    conn = get_connection()
+    try:
+        content = generate_cover_letter(conn, job_id, tone=tone)
+    except ValueError as e:
+        _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+        conn.close()
+        raise typer.Exit(1)
+    except RuntimeError as e:
+        _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+        conn.close()
+        raise typer.Exit(1)
+    conn.close()
+
+    if output:
+        Path(output).write_text(content)
+        _print(f"[green]✓[/green] Cover letter saved to {output}" if HAS_RICH else f"✓ Cover letter saved to {output}")
+    else:
+        print(content)
+
+
+# --- Phase 3: Application tracking commands ---
+
+@application_app.command("list")
+def application_list(
+    status: str = typer.Option(None, "--status", "-s", help="Filter by status"),
+):
+    """List all applications."""
+    from beacon.db.profile import get_applications
+
+    conn = get_connection()
+    apps = get_applications(conn, status=status)
+    conn.close()
+
+    if not apps:
+        _print("No applications found.")
+        return
+
+    if HAS_RICH:
+        table = Table(title="Applications")
+        table.add_column("ID", style="dim", width=4)
+        table.add_column("Company", style="bold")
+        table.add_column("Job Title")
+        table.add_column("Status")
+        table.add_column("Applied")
+        table.add_column("Notes", width=30)
+        for a in apps:
+            table.add_row(
+                str(a["id"]),
+                a["company_name"],
+                a["job_title"],
+                a["status"],
+                a["applied_date"] or "",
+                (a["notes"] or "")[:30],
+            )
+        console.print(table)
+    else:
+        for a in apps:
+            print(f"  [{a['id']}] {a['company_name']}: {a['job_title']} ({a['status']})")
+
+
+@application_app.command("show")
+def application_show(app_id: int = typer.Argument(help="Application ID")):
+    """Show detailed application info."""
+    from beacon.db.profile import get_application_by_id
+
+    conn = get_connection()
+    app_row = get_application_by_id(conn, app_id)
+    conn.close()
+
+    if not app_row:
+        _print(f"No application found with ID {app_id}")
+        return
+
+    if HAS_RICH:
+        console.print(Panel(f"[bold]{app_row['job_title']}[/bold] at {app_row['company_name']}", style="blue"))
+        console.print(f"  Status: {app_row['status']}")
+        console.print(f"  Applied: {app_row['applied_date'] or 'N/A'}")
+        if app_row["resume_path"]:
+            console.print(f"  Resume: {app_row['resume_path']}")
+        if app_row["cover_letter_path"]:
+            console.print(f"  Cover Letter: {app_row['cover_letter_path']}")
+        if app_row["notes"]:
+            console.print(f"\n[bold]Notes:[/bold]\n  {app_row['notes']}")
+    else:
+        print(f"\n{app_row['job_title']} at {app_row['company_name']}")
+        print(f"  Status: {app_row['status']}")
+        print(f"  Applied: {app_row['applied_date'] or 'N/A'}")
+        if app_row["notes"]:
+            print(f"  Notes: {app_row['notes']}")
+
+
+@application_app.command("update")
+def application_update(
+    app_id: int = typer.Argument(help="Application ID"),
+    status: str = typer.Option(None, "--status", "-s", help="New status"),
+    notes: str = typer.Option(None, "--notes", "-n", help="Update notes"),
+):
+    """Update application status or notes."""
+    from beacon.db.profile import update_application
+
+    conn = get_connection()
+    kwargs = {}
+    if status:
+        kwargs["status"] = status
+    if notes:
+        kwargs["notes"] = notes
+
+    if not kwargs:
+        _print("Provide --status or --notes to update.")
+        conn.close()
+        return
+
+    success = update_application(conn, app_id, **kwargs)
+    conn.close()
+
+    if success:
+        _print(f"[green]✓[/green] Application {app_id} updated" if HAS_RICH else f"✓ Application {app_id} updated")
+    else:
+        _print(f"No application found with ID {app_id}")
 
 
 def main():

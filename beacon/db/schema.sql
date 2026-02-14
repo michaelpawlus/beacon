@@ -107,6 +107,93 @@ CREATE TABLE IF NOT EXISTS job_listings (
     UNIQUE(company_id, title, url)
 );
 
+-- Phase 3: Professional Profile & Application Materials
+
+-- Work experience history
+CREATE TABLE IF NOT EXISTS work_experiences (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company TEXT NOT NULL,
+    title TEXT NOT NULL,
+    start_date TEXT NOT NULL,  -- YYYY-MM or YYYY-MM-DD
+    end_date TEXT,             -- NULL = current role
+    description TEXT,
+    key_achievements TEXT,     -- JSON array
+    technologies TEXT,         -- JSON array
+    metrics TEXT,              -- JSON array of quantified results
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Projects (optionally linked to work experience)
+CREATE TABLE IF NOT EXISTS projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    technologies TEXT,         -- JSON array
+    outcomes TEXT,             -- JSON array
+    repo_url TEXT,
+    is_public BOOLEAN DEFAULT 0,
+    work_experience_id INTEGER REFERENCES work_experiences(id) ON DELETE SET NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Skills inventory
+CREATE TABLE IF NOT EXISTS skills (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    category TEXT,             -- e.g., 'language', 'framework', 'tool', 'domain'
+    proficiency TEXT CHECK(proficiency IN ('beginner', 'intermediate', 'advanced', 'expert')),
+    years_experience INTEGER,
+    evidence TEXT,             -- JSON array of evidence references
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Education
+CREATE TABLE IF NOT EXISTS education (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    institution TEXT NOT NULL,
+    degree TEXT,
+    field_of_study TEXT,
+    start_date TEXT,
+    end_date TEXT,
+    gpa REAL,
+    relevant_coursework TEXT,  -- JSON array
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Publications, talks, and other public contributions
+CREATE TABLE IF NOT EXISTS publications_talks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    pub_type TEXT NOT NULL CHECK(pub_type IN (
+        'blog_post', 'paper', 'talk', 'panel', 'podcast', 'workshop', 'open_source'
+    )),
+    venue TEXT,
+    url TEXT,
+    date_published TEXT,
+    description TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Application tracking (links to job_listings)
+CREATE TABLE IF NOT EXISTS applications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id INTEGER NOT NULL REFERENCES job_listings(id) ON DELETE CASCADE,
+    status TEXT DEFAULT 'draft' CHECK(status IN (
+        'draft', 'applied', 'phone_screen', 'interview', 'offer', 'rejected', 'withdrawn', 'ghosted'
+    )),
+    resume_path TEXT,
+    cover_letter_path TEXT,
+    applied_date TEXT,
+    notes TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_companies_score ON companies(ai_first_score DESC);
 CREATE INDEX IF NOT EXISTS idx_companies_tier ON companies(tier);
@@ -116,3 +203,7 @@ CREATE INDEX IF NOT EXISTS idx_leadership_company ON leadership_signals(company_
 CREATE INDEX IF NOT EXISTS idx_tools_company ON tools_adopted(company_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_company ON job_listings(company_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON job_listings(status);
+CREATE INDEX IF NOT EXISTS idx_projects_work_exp ON projects(work_experience_id);
+CREATE INDEX IF NOT EXISTS idx_skills_category ON skills(category);
+CREATE INDEX IF NOT EXISTS idx_applications_job ON applications(job_id);
+CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status);

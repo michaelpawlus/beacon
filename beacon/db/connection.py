@@ -30,6 +30,8 @@ def reset_db(db_path: Path | str | None = None) -> None:
     """Drop all tables and reinitialize. Use with caution."""
     conn = get_connection(db_path)
     tables = [
+        "applications", "publications_talks", "education", "skills",
+        "projects", "work_experiences",
         "score_breakdown", "tools_adopted", "leadership_signals",
         "ai_signals", "job_listings", "companies"
     ]

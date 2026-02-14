@@ -1,3 +1,96 @@
+# Phase 3: Application Materials Generator — Development Journal
+
+## Timeline
+
+Phase 3 implemented in a single session, building on the Phase 1+2 foundation of 38 companies, a scoring engine, career page scrapers, job relevance scoring, and 120 passing tests.
+
+## What Was Built
+
+### New Capabilities
+1. **Professional profile knowledge base** — 6 new tables for work experiences, projects, skills, education, publications/talks, and application tracking
+2. **Interactive interview tool** — `beacon profile interview` walks through a structured questionnaire to populate the profile using Rich prompts
+3. **Import/export utility** — Bulk load profile data from JSON, export full profile for backup with roundtrip fidelity
+4. **Profile browsing CLI** — Commands to view, list, and browse all profile sections with Rich tables and a completeness dashboard
+5. **Anthropic API integration** — First LLM usage in the project; shared client wrapper with `generate()` and `generate_structured()` functions
+6. **Resume tailoring engine** — Pipeline: extract requirements from job description → select relevant profile items → generate tailored resume via LLM
+7. **Cover letter generator** — Integrates Phase 1 company research (leadership signals, AI signals, tools adopted) with profile data for context-aware cover letters
+8. **Application tracking** — Enhanced `job apply` creates application records, `beacon application list/show/update` for status tracking
+9. **Supplementary materials** — "Why this company?" statements and portfolio summaries using Phase 1 AI-first signals
+
+### Architecture Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| LLM provider | Anthropic Claude via optional `anthropic` SDK | First-party API; clean SDK; optional dependency keeps core lightweight |
+| Default model | `claude-sonnet-4-5-20250929` | Good balance of speed and quality for resume/cover letter generation |
+| LLM as optional dep | `pip install beacon[llm]` | Profile DB and interview work without API key; LLM features degrade gracefully |
+| Doc rendering deps | `pip install beacon[docs]` (python-docx, fpdf2) | Optional; markdown is the primary output format |
+| Profile data model | 6 separate tables with FK relationships | Normalized schema; projects FK to work_experiences, applications FK to job_listings |
+| Skill upsert | UNIQUE on name, manual check-then-insert/update | Same pattern as job upsert; preserves existing data on re-add |
+| JSON arrays | TEXT columns with `json.dumps()` | Same pattern as `match_reasons` in Phase 2; keeps schema simple |
+| Interview tool | Separate module from CLI, testable via mock | Rich prompts tested by mocking `Prompt.ask()` and `Confirm.ask()` |
+| Section functions lookup | `getattr()` on module for dynamic dispatch | Allows proper mocking in tests (dict references would cache original functions) |
+
+### File Inventory
+
+**18 new files** created, **4 existing files** modified.
+
+#### New source files (10):
+- `beacon/db/profile.py` — Profile CRUD operations (all 6 tables)
+- `beacon/interview.py` — Interactive profile interview tool
+- `beacon/importer.py` — Profile import/export utility
+- `beacon/llm/__init__.py` — LLM package re-exports
+- `beacon/llm/client.py` — Anthropic API client wrapper
+- `beacon/llm/prompts.py` — Prompt templates for all LLM features
+- `beacon/materials/__init__.py` — Materials package
+- `beacon/materials/resume.py` — Resume tailoring pipeline
+- `beacon/materials/renderer.py` — Resume rendering (markdown, docx, pdf)
+- `beacon/materials/cover_letter.py` — Cover letter generator
+- `beacon/materials/supplementary.py` — Why statements and portfolio summaries
+
+#### New test files (8):
+- `tests/test_profile_db.py` — 47 tests for profile CRUD operations
+- `tests/test_interview.py` — 14 tests for interview tool
+- `tests/test_importer.py` — 17 tests for import/export
+- `tests/test_profile_cli.py` — 14 tests for profile CLI commands
+- `tests/test_llm.py` — 13 tests for LLM client
+- `tests/test_resume.py` — 14 tests for resume tailoring
+- `tests/test_cover_letter.py` — 12 tests for cover letter generation
+- `tests/test_applications.py` — 12 tests for application tracking
+
+#### Modified files:
+- `beacon/db/schema.sql` — Added 6 Phase 3 tables with indexes
+- `beacon/db/connection.py` — Updated `reset_db()` drop-order for new tables
+- `beacon/cli.py` — Added `profile` and `application` sub-apps with ~15 new commands
+- `pyproject.toml` — Added `llm` and `docs` optional dependency groups
+
+## Test Summary
+
+| Phase | Tests |
+|-------|-------|
+| Phase 1 (companies, scoring, seeding) | 21 |
+| Phase 2 (jobs, scanning, adapters, reports) | 99 |
+| Phase 3 (profile, LLM, materials, applications) | 154 |
+| **Total** | **274** |
+
+## What Was Deferred
+
+- **Embedding-based skill matching** — `select_relevant_items()` uses string matching for skill relevance. Could upgrade to embeddings for semantic matching (e.g., "ML" matching "machine learning").
+- **Multi-page PDF layout** — The fpdf2 renderer is basic markdown-to-PDF. A LaTeX-based pipeline would produce publication-quality resumes.
+- **Application analytics** — No dashboards or funnel analysis for application outcomes. Could add `beacon application stats` with conversion rates.
+- **Template system** — Prompt templates are hardcoded strings. Could support user-customizable templates stored in a config directory.
+- **Interview persistence** — The interview tool doesn't support resume/pause. Long interviews must be completed in one session.
+
+## Lessons Learned
+
+1. **`sqlite3.Row` doesn't support `.get()`** — Unlike dicts, Row objects require bracket access. Any code expecting `.get()` on database rows will fail at runtime. Always use `row["field"] or ""` patterns.
+2. **`getattr()` dispatch for testability** — Storing function references in a dict breaks mock patching since the dict captures the original reference. Using `getattr(module, func_name)` at call time allows proper mocking.
+3. **Optional dependencies need careful testing** — LLM and doc rendering tests must handle `ImportError` gracefully. The `RuntimeError` with install instructions pattern works well for user-facing errors.
+4. **Company research context enriches LLM output** — Feeding Phase 1's leadership signals, AI culture signals, and tools adopted into cover letter prompts produces much more specific output than generic templates.
+5. **Test connection lifecycle matters** — CLI commands that close connections can interfere with test assertions. Using fresh connections for verification or mocking the close prevents `ProgrammingError: Cannot operate on a closed database`.
+
+---
+
 # Phase 2: Job Scanner & Monitoring — Development Journal
 
 ## Timeline
