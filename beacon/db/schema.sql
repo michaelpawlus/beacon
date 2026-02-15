@@ -194,6 +194,57 @@ CREATE TABLE IF NOT EXISTS applications (
     updated_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Phase 4: Professional Presence Automation
+
+-- Content drafts for GitHub, LinkedIn, blog posts, etc.
+CREATE TABLE IF NOT EXISTS content_drafts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    content_type TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    status TEXT DEFAULT 'draft' CHECK(status IN ('draft', 'published', 'archived')),
+    published_url TEXT,
+    published_at TEXT,
+    metadata TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Content calendar for planning posts
+CREATE TABLE IF NOT EXISTS content_calendar (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    topic TEXT,
+    target_date TEXT,
+    status TEXT DEFAULT 'idea' CHECK(status IN ('idea', 'outlined', 'drafted', 'published')),
+    draft_id INTEGER REFERENCES content_drafts(id) ON DELETE SET NULL,
+    notes TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Enrichment accomplishments for deep-dive interviews
+CREATE TABLE IF NOT EXISTS accomplishments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    work_experience_id INTEGER REFERENCES work_experiences(id) ON DELETE SET NULL,
+    raw_statement TEXT NOT NULL,
+    context TEXT,
+    action TEXT,
+    result TEXT,
+    metrics TEXT,
+    technologies TEXT,
+    stakeholders TEXT,
+    timeline TEXT,
+    challenges TEXT,
+    learning TEXT,
+    content_angles TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_companies_score ON companies(ai_first_score DESC);
 CREATE INDEX IF NOT EXISTS idx_companies_tier ON companies(tier);
@@ -207,3 +258,8 @@ CREATE INDEX IF NOT EXISTS idx_projects_work_exp ON projects(work_experience_id)
 CREATE INDEX IF NOT EXISTS idx_skills_category ON skills(category);
 CREATE INDEX IF NOT EXISTS idx_applications_job ON applications(job_id);
 CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status);
+CREATE INDEX IF NOT EXISTS idx_content_drafts_platform ON content_drafts(platform);
+CREATE INDEX IF NOT EXISTS idx_content_drafts_status ON content_drafts(status);
+CREATE INDEX IF NOT EXISTS idx_content_calendar_platform ON content_calendar(platform);
+CREATE INDEX IF NOT EXISTS idx_content_calendar_status ON content_calendar(status);
+CREATE INDEX IF NOT EXISTS idx_accomplishments_work_exp ON accomplishments(work_experience_id);

@@ -200,6 +200,67 @@ Composite = Leadership × 0.30 + Tools × 0.25 + Culture × 0.25 + Evidence × 0
 
 Run `beacon show <company>` to see the full breakdown for any company.
 
+## Phase 4: Professional Presence Automation
+
+Beacon generates multi-platform content from your profile data — GitHub README, LinkedIn content, blog posts, and personal website pages.
+
+```bash
+# Generate a GitHub profile README
+beacon presence github
+beacon presence github --output README.md
+
+# LinkedIn content
+beacon presence linkedin-headline       # generate 5 headline options
+beacon presence linkedin-about          # generate About section
+beacon presence linkedin-post --topic "Rolling out AI at scale"
+
+# Blog content
+beacon presence blog-outline --topic "Building AI agents for non-technical users"
+beacon presence blog-generate --topic "Data warehouse modernization lessons"
+beacon presence blog-export 1 --format medium     # export for Medium
+beacon presence blog-export 1 --format devto       # export for Dev.to
+
+# Content management
+beacon presence drafts                  # list all drafts
+beacon presence draft 1                 # view a draft
+beacon presence publish 1 --url "..."   # mark as published
+
+# Content calendar
+beacon presence calendar                # list planned content
+beacon presence calendar-add --title "AI Post" --platform linkedin --date 2025-07-01
+beacon presence calendar-seed           # auto-generate calendar from AI ideas
+
+# Personal website (Astro-ready)
+beacon presence site-generate           # export all content to site/src/content/
+beacon presence site-resume             # generate resume page
+beacon presence site-projects           # generate project pages
+
+# Enrichment interviews
+beacon presence enrich                  # capture accomplishments with STAR framework
+beacon presence enrich --work-id 1      # enrich a specific work experience
+beacon presence enrich --list-gaps      # show missing profile information
+beacon presence enrich --generate-content  # auto-generate content from interview
+```
+
+### How It Works
+
+```
+beacon presence github
+    │
+    ├─ Build profile context (work, skills, projects, education)
+    ├─ Apply platform-specific template
+    ├─ Generate via Claude API
+    ├─ Adapt for platform format (markdown, char limits, frontmatter)
+    └─ Auto-save as content draft
+```
+
+Content adapters handle platform constraints:
+- **LinkedIn:** Strip markdown, enforce 3,000 char post limit / 2,600 char about limit
+- **GitHub:** Ensure proper GFM spacing
+- **Blog:** Add YAML frontmatter for Astro
+- **Medium:** Remove frontmatter, convert H1 to H2
+- **Dev.to:** Liquid tags frontmatter, max 4 tags
+
 ## Project Roadmap
 
 Beacon is the foundation for a larger job search automation platform:
@@ -207,7 +268,7 @@ Beacon is the foundation for a larger job search automation platform:
 - [x] **Phase 1:** Company Intelligence Database
 - [x] **Phase 2:** Job Scanner — monitor career pages, score relevance, generate reports
 - [x] **Phase 3:** Application Generator — profile knowledge base, LLM-powered resume/cover letter generation, application tracking
-- [ ] **Phase 4:** Professional Presence — website, GitHub, LinkedIn automation
+- [x] **Phase 4:** Professional Presence — content generation, enrichment interviews, personal website export
 
 ## Contributing Signals
 

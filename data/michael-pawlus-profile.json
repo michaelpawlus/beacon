@@ -1,0 +1,178 @@
+{
+  "work_experiences": [
+    {
+      "company": "The Ohio State University",
+      "title": "Data Scientist",
+      "start_date": "2023-01",
+      "end_date": null,
+      "description": "Building AI implementation infrastructure for a 50,000+ person institution. Leading AI adoption strategy, agent development, and data warehouse modernization at the intersection of AI strategy, data engineering, and organizational change.",
+      "key_achievements": [
+        "Led Copilot Premium rollout and governance framework for enterprise-wide AI adoption",
+        "Built AI agents for research summarization, donor correspondence, and report analysis using Claude and Microsoft 365 Copilot",
+        "Migrated data warehouse from on-premise SQL Server to Databricks with semantic layer design",
+        "Developed governance frameworks for responsible AI usage across the institution"
+      ],
+      "technologies": ["Python", "SQL", "Databricks", "Claude API", "Microsoft 365 Copilot", "PySpark", "Git"],
+      "metrics": [
+        "Managed AI tool adoption across 50,000+ person institution",
+        "Led Copilot Premium implementation for enterprise users"
+      ]
+    },
+    {
+      "company": "University of Southern California",
+      "title": "Data Scientist",
+      "start_date": "2020-01",
+      "end_date": "2022-12",
+      "description": "Applied data science and analytics to advancement operations, building predictive models and data-driven strategies for fundraising and donor engagement.",
+      "key_achievements": [
+        "Built propensity models for donor identification and audience segmentation",
+        "Developed analytics pipelines for fundraising performance tracking",
+        "Applied NLP techniques to donor communications analysis"
+      ],
+      "technologies": ["Python", "R", "SQL", "scikit-learn", "pandas", "NLP"],
+      "metrics": []
+    },
+    {
+      "company": "The Trust for Public Land",
+      "title": "Director of Prospect Research",
+      "start_date": "2018-01",
+      "end_date": "2019-12",
+      "description": "Led a team of 3 in prospect research and data analytics for conservation fundraising. Director-level management with cross-functional collaboration across the organization.",
+      "key_achievements": [
+        "Managed team of 3 prospect research analysts",
+        "Developed data-driven prospect identification and cultivation strategies",
+        "Built analytics frameworks for conservation fundraising campaigns"
+      ],
+      "technologies": ["R", "SQL", "Excel"],
+      "metrics": [
+        "Led team of 3 research analysts"
+      ]
+    },
+    {
+      "company": "Grand Valley State University",
+      "title": "Prospect Research Analyst",
+      "start_date": "2016-01",
+      "end_date": "2017-12",
+      "description": "Data analytics and prospect research in university advancement, transitioning into data science with R programming and predictive modeling.",
+      "key_achievements": [
+        "Presented at DRIVE 2017 conference with outstanding audience reviews",
+        "Built R-based analytics tools for fundraising analysis",
+        "Developed predictive models for donor identification"
+      ],
+      "technologies": ["R", "SQL", "Excel"],
+      "metrics": []
+    },
+    {
+      "company": "St. Francis College",
+      "title": "Prospect Research Analyst",
+      "start_date": "2014-06",
+      "end_date": "2015-12",
+      "description": "Prospect research and analytics for higher education fundraising, beginning the transition from librarianship to data-driven roles.",
+      "key_achievements": [
+        "Developed prospect research processes for the advancement office",
+        "Created data analysis workflows for donor identification"
+      ],
+      "technologies": ["Excel", "SQL"],
+      "metrics": []
+    },
+    {
+      "company": "Habitat for Humanity",
+      "title": "Research Associate",
+      "start_date": "2013-01",
+      "end_date": "2014-05",
+      "description": "Research and data analysis supporting fundraising operations for nonprofit housing organization. Entry point into prospect research from a non-traditional background in public relations, librarianship, and teaching.",
+      "key_achievements": [
+        "Supported fundraising operations with data research and analysis",
+        "Built foundation in nonprofit data analytics"
+      ],
+      "technologies": ["Excel"],
+      "metrics": []
+    }
+  ],
+  "projects": [
+    {
+      "name": "Beacon",
+      "description": "AI-powered job search platform that curates AI-first companies with evidence-backed scoring, automated career page scanning, job relevance scoring, and LLM-powered application materials generation.",
+      "technologies": ["Python", "SQLite", "Typer", "Rich", "httpx", "BeautifulSoup4", "Anthropic Claude API"],
+      "outcomes": [
+        "38 companies scored across 5 AI-first dimensions",
+        "Automated career page scanning with relevance scoring",
+        "LLM-powered resume and cover letter generation",
+        "274 passing tests across 3 phases"
+      ],
+      "repo_url": "https://github.com/michaelpawlus/beacon",
+      "is_public": true
+    },
+    {
+      "name": "AI Agent Development",
+      "description": "Building AI agents for research summarization, donor correspondence, and report analysis using Claude and Microsoft 365 Copilot. Deploying agentic workflows for non-technical users in higher education.",
+      "technologies": ["Python", "Claude API", "Microsoft Copilot Studio", "Microsoft 365 Copilot"],
+      "outcomes": [
+        "Agents deployed for research summarization and donor correspondence",
+        "Declarative agents built for non-technical end users",
+        "Governance framework developed for responsible AI agent usage"
+      ],
+      "repo_url": null,
+      "is_public": false
+    },
+    {
+      "name": "Data Warehouse Modernization",
+      "description": "Migration from on-premise SQL Server to Databricks, including semantic layer design, governance frameworks, and modern data engineering practices.",
+      "technologies": ["Databricks", "PySpark", "SQL Server", "Python", "SQL"],
+      "outcomes": [
+        "Designed semantic layers for unified data access",
+        "Built governance frameworks for data warehouse operations",
+        "Modernized ETL pipelines from legacy SQL Server to Databricks"
+      ],
+      "repo_url": null,
+      "is_public": false
+    },
+    {
+      "name": "Copilot Premium Rollout",
+      "description": "Enterprise-wide implementation of Microsoft Copilot Premium across a 50,000+ person institution, including governance frameworks, training, and adoption strategy.",
+      "technologies": ["Microsoft 365 Copilot", "Microsoft Copilot Studio", "Workfront"],
+      "outcomes": [
+        "Governance framework for enterprise AI tool adoption",
+        "Training materials and adoption strategy for 50,000+ users",
+        "Established policies for responsible AI usage"
+      ],
+      "repo_url": null,
+      "is_public": false
+    }
+  ],
+  "skills": [
+    {"name": "Python", "category": "language", "proficiency": "expert", "years_experience": 7},
+    {"name": "SQL", "category": "language", "proficiency": "expert", "years_experience": 10},
+    {"name": "R", "category": "language", "proficiency": "advanced", "years_experience": 7},
+    {"name": "PySpark", "category": "framework", "proficiency": "advanced", "years_experience": 3},
+    {"name": "pandas", "category": "framework", "proficiency": "expert", "years_experience": 7},
+    {"name": "scikit-learn", "category": "framework", "proficiency": "advanced", "years_experience": 5},
+    {"name": "Typer", "category": "framework", "proficiency": "advanced", "years_experience": 1},
+    {"name": "Databricks", "category": "tool", "proficiency": "advanced", "years_experience": 3},
+    {"name": "Claude API", "category": "tool", "proficiency": "advanced", "years_experience": 2},
+    {"name": "Claude Code", "category": "tool", "proficiency": "advanced", "years_experience": 1},
+    {"name": "GitHub Copilot", "category": "tool", "proficiency": "advanced", "years_experience": 2},
+    {"name": "Microsoft 365 Copilot", "category": "tool", "proficiency": "advanced", "years_experience": 2},
+    {"name": "Microsoft Copilot Studio", "category": "tool", "proficiency": "intermediate", "years_experience": 1},
+    {"name": "Cursor", "category": "tool", "proficiency": "intermediate", "years_experience": 1},
+    {"name": "Git", "category": "tool", "proficiency": "advanced", "years_experience": 7},
+    {"name": "SQL Server", "category": "tool", "proficiency": "advanced", "years_experience": 5},
+    {"name": "BigQuery", "category": "tool", "proficiency": "intermediate", "years_experience": 2},
+    {"name": "NLP", "category": "domain", "proficiency": "advanced", "years_experience": 5},
+    {"name": "Propensity Modeling", "category": "domain", "proficiency": "advanced", "years_experience": 5},
+    {"name": "Audience Segmentation", "category": "domain", "proficiency": "advanced", "years_experience": 5},
+    {"name": "AI Strategy", "category": "domain", "proficiency": "advanced", "years_experience": 3},
+    {"name": "Data Warehouse Design", "category": "domain", "proficiency": "advanced", "years_experience": 3}
+  ],
+  "education": [],
+  "publications_talks": [
+    {
+      "title": "DRIVE 2017 Conference Presentations",
+      "pub_type": "talk",
+      "venue": "DRIVE 2017",
+      "url": null,
+      "date_published": "2017",
+      "description": "Conference presentations on fundraising analytics with outstanding audience reviews. Demonstrated data science applications in prospect research and development analytics."
+    }
+  ]
+}

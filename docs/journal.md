@@ -1,3 +1,103 @@
+# Phase 4: Professional Presence Automation — Development Journal
+
+## Timeline
+
+Phase 4 implemented in a single session, building on the Phase 1-3 foundation of 38 companies, career page scanning, LLM-powered application materials, and 274 passing tests.
+
+## What Was Built
+
+### New Capabilities
+1. **Profile seed data** — `data/michael-pawlus-profile.json` with 6 work experiences, 4 projects, 22 skills, and 1 publication extracted from existing docs
+2. **Content generation engine** — `beacon/presence/` package with LLM-powered generators for GitHub README, LinkedIn (headline, about, post), blog (outline, full post), and content ideas
+3. **Platform format adapters** — Adapters for LinkedIn (char limits, no markdown), GitHub (GFM), blog (YAML frontmatter), Medium, and Dev.to (liquid tags)
+4. **Content drafts system** — `content_drafts` table with CRUD, auto-save of all generated content as drafts, publish workflow with URL tracking
+5. **Content calendar** — `content_calendar` table for planning posts across platforms, with manual and AI-seeded entry creation
+6. **Cross-posting pipeline** — Generate platform-specific versions from a single blog post (Astro, LinkedIn teaser, Medium, Dev.to)
+7. **Personal website export** — Astro-ready markdown content files (resume, about, project pages) with YAML frontmatter, plus minimal Astro scaffolding
+8. **Enrichment interview system** — STAR framework interview for capturing accomplishments in rich detail, gap detection, and multi-platform content generation from enriched data
+9. **Enrichment interview guide** — Standalone Markdown document any Claude session can use to conduct interviews without Beacon code
+10. **15+ new CLI commands** under `beacon presence` — github, linkedin-headline, linkedin-about, linkedin-post, blog-outline, blog-generate, blog-export, drafts, draft, publish, calendar, calendar-add, calendar-seed, site-generate, site-resume, site-projects, enrich
+
+### Architecture Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Content storage | Separate `content_drafts` and `content_calendar` tables | Draft ≠ calendar entry; a calendar idea may not have a draft yet |
+| Adapters pattern | Pure functions, no class hierarchy | Simpler than adapter classes; each platform's constraints are well-defined |
+| Profile context | Two levels: `build_profile_summary()` (concise) and `build_full_profile_context()` (detailed) | Short context for headlines/posts; full context for README/about sections |
+| Template system | String constants in `templates.py` | Consistent with Phase 3's `prompts.py` pattern; easy to customize later |
+| Site framework | Astro with minimal scaffolding | Data export focus; user customizes design separately |
+| Enrichment | Both CLI (`beacon presence enrich`) and standalone doc | CLI for integrated workflows; doc for any Claude session without code |
+| Cross-posting | Function returns dict of all versions at once | Generate-once, export-many pattern; efficient LLM usage |
+| Auto-save drafts | Every generation command auto-saves as draft | No lost content; user can review/edit before publishing |
+
+### File Inventory
+
+**8 new source files** created, **3 existing files** modified.
+
+#### New source files:
+- `beacon/presence/__init__.py` — Package init
+- `beacon/presence/templates.py` — Prompt templates for all content types
+- `beacon/presence/generator.py` — Content generation engine (10 generator functions)
+- `beacon/presence/adapters.py` — Platform format adapters (5 adapters)
+- `beacon/presence/crosspost.py` — Cross-posting pipeline
+- `beacon/presence/site.py` — Personal website data export
+- `beacon/presence/enrichment.py` — Enrichment interview system
+- `beacon/db/content.py` — CRUD for content_drafts, content_calendar, accomplishments
+
+#### New test files (8):
+- `tests/test_presence_generator.py` — 31 tests for content generation
+- `tests/test_presence_adapters.py` — 32 tests for platform adapters
+- `tests/test_content_db.py` — 40 tests for content CRUD operations
+- `tests/test_presence_cli.py` — 25 tests for presence CLI commands
+- `tests/test_linkedin.py` — 11 tests for LinkedIn-specific features
+- `tests/test_blog.py` — 12 tests for blog generation and export
+- `tests/test_crosspost.py` — 14 tests for cross-posting
+- `tests/test_presence_site.py` — 21 tests for site content export
+- `tests/test_enrichment.py` — 19 tests for enrichment system
+
+#### New data/docs:
+- `data/michael-pawlus-profile.json` — Profile seed data
+- `docs/enrichment-interview-guide.md` — Standalone interview guide
+
+#### Astro scaffolding:
+- `site/package.json`, `site/astro.config.mjs`, `site/tsconfig.json`
+- `site/src/layouts/Page.astro`, `site/src/pages/index.astro`, `site/src/styles/global.css`
+
+#### Modified files:
+- `beacon/db/schema.sql` — Added `content_drafts`, `content_calendar`, `accomplishments` tables + indexes
+- `beacon/db/connection.py` — Updated `reset_db()` drop order for new tables
+- `beacon/cli.py` — Added `presence` sub-app with 15+ new commands
+
+## Test Summary
+
+| Phase | Tests |
+|-------|-------|
+| Phase 1 (companies, scoring, seeding) | 21 |
+| Phase 2 (jobs, scanning, adapters, reports) | 99 |
+| Phase 3 (profile, LLM, materials, applications) | 154 |
+| Phase 4 (presence, content, enrichment) | 197 |
+| **Total** | **471** |
+
+## What Was Deferred
+
+- **Astro site design** — Minimal scaffolding provided; user customizes layout, styling, and components separately
+- **Content analytics** — No dashboards for engagement tracking across platforms
+- **Automated posting** — LinkedIn, Medium, Dev.to APIs for direct publishing (currently generates content for manual posting)
+- **Image generation** — No cover images or social media cards generated
+- **SEO optimization** — Blog content doesn't include structured data or meta tag optimization
+- **Version control for drafts** — No revision history for content drafts
+
+## Lessons Learned
+
+1. **Mock path matters for lazy imports** — When functions are imported lazily inside other functions (e.g., `from beacon.llm.client import generate` inside a generator function), the mock path must target the original module (`beacon.llm.client.generate`), not the importing module.
+2. **Substring assertions need care** — Test assertions like `"resume" in filepath` can match unintended substrings (e.g., "site_content" contains "content"). Use `endswith()` or exact matching.
+3. **LinkedIn adapter is essential** — LinkedIn doesn't render markdown, so stripping formatting before posting prevents garbled output. The adapter pattern makes this transparent.
+4. **Two-level profile context is useful** — Short summaries for quick content (headlines, posts) vs. full context for detailed content (README, about sections) produces better results from the LLM.
+5. **Auto-saving drafts reduces friction** — Every generated piece of content is automatically saved as a draft, so users never lose output from an LLM call even if they forget to save.
+
+---
+
 # Phase 3: Application Materials Generator — Development Journal
 
 ## Timeline

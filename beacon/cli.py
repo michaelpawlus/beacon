@@ -37,10 +37,12 @@ job_app = typer.Typer(help="Job listing operations")
 report_app = typer.Typer(help="Report generation")
 profile_app = typer.Typer(help="Professional profile management")
 application_app = typer.Typer(help="Application tracking")
+presence_app = typer.Typer(help="Professional presence & content generation")
 app.add_typer(job_app, name="job")
 app.add_typer(report_app, name="report")
 app.add_typer(profile_app, name="profile")
 app.add_typer(application_app, name="application")
+app.add_typer(presence_app, name="presence")
 console = Console() if HAS_RICH else None
 
 
@@ -1115,6 +1117,501 @@ def application_update(
         _print(f"[green]✓[/green] Application {app_id} updated" if HAS_RICH else f"✓ Application {app_id} updated")
     else:
         _print(f"No application found with ID {app_id}")
+
+
+# --- Phase 4: Professional Presence commands ---
+
+@presence_app.command("github")
+def presence_github_readme(
+    output: str = typer.Option(None, "--output", "-o", help="Output file path"),
+):
+    """Generate a GitHub profile README from your profile data."""
+    from beacon.presence.generator import generate_github_readme
+    from beacon.presence.adapters import adapt_for_github_markdown
+
+    conn = get_connection()
+    _print("Generating GitHub README..." if not HAS_RICH else "[bold]Generating GitHub README...[/bold]")
+    try:
+        content = generate_github_readme(conn)
+        content = adapt_for_github_markdown(content)
+    except RuntimeError as e:
+        _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+        conn.close()
+        raise typer.Exit(1)
+
+    # Save as draft
+    from beacon.db.content import add_content_draft
+    draft_id = add_content_draft(conn, "readme", "github", "GitHub Profile README", content)
+    conn.close()
+
+    if output:
+        Path(output).write_text(content)
+        _print(f"[green]✓[/green] README saved to {output} (draft #{draft_id})" if HAS_RICH else f"✓ README saved to {output} (draft #{draft_id})")
+    else:
+        print(content)
+        _print(f"\n[dim]Saved as draft #{draft_id}[/dim]" if HAS_RICH else f"\nSaved as draft #{draft_id}")
+
+
+@presence_app.command("drafts")
+def presence_drafts(
+    platform: str = typer.Option(None, "--platform", "-p", help="Filter by platform"),
+    status: str = typer.Option(None, "--status", "-s", help="Filter by status"),
+):
+    """List all content drafts."""
+    from beacon.db.content import get_content_drafts
+
+    conn = get_connection()
+    drafts = get_content_drafts(conn, platform=platform, status=status)
+    conn.close()
+
+    if not drafts:
+        _print("No content drafts found.")
+        return
+
+    if HAS_RICH:
+        table = Table(title="Content Drafts")
+        table.add_column("ID", style="dim", width=4)
+        table.add_column("Platform", style="bold")
+        table.add_column("Type")
+        table.add_column("Title", width=40)
+        table.add_column("Status")
+        table.add_column("Updated")
+        for d in drafts:
+            status_color = "green" if d["status"] == "published" else "yellow" if d["status"] == "draft" else "dim"
+            table.add_row(
+                str(d["id"]),
+                d["platform"],
+                d["content_type"],
+                d["title"][:40],
+                f"[{status_color}]{d['status']}[/{status_color}]",
+                d["updated_at"][:10] if d["updated_at"] else "",
+            )
+        console.print(table)
+    else:
+        for d in drafts:
+            print(f"  [{d['id']}] [{d['platform']}] {d['title']} ({d['status']})")
+
+
+@presence_app.command("draft")
+def presence_draft_show(
+    draft_id: int = typer.Argument(help="Draft ID"),
+):
+    """View a specific content draft."""
+    from beacon.db.content import get_content_draft_by_id
+
+    conn = get_connection()
+    draft = get_content_draft_by_id(conn, draft_id)
+    conn.close()
+
+    if not draft:
+        _print(f"No draft found with ID {draft_id}")
+        return
+
+    if HAS_RICH:
+        console.print(Panel(
+            f"[bold]{draft['title']}[/bold] — {draft['platform']} {draft['content_type']}",
+            style="blue",
+        ))
+        console.print(f"  Status: {draft['status']}")
+        console.print(f"  Created: {draft['created_at']}")
+        if draft["published_url"]:
+            console.print(f"  URL: {draft['published_url']}")
+        console.print("")
+        console.print(draft["body"])
+    else:
+        print(f"\n{draft['title']} ({draft['platform']} {draft['content_type']})")
+        print(f"  Status: {draft['status']}")
+        print(f"\n{draft['body']}")
+
+
+@presence_app.command("publish")
+def presence_draft_publish(
+    draft_id: int = typer.Argument(help="Draft ID to publish"),
+    url: str = typer.Option(None, "--url", "-u", help="Published URL"),
+):
+    """Mark a draft as published."""
+    from beacon.db.content import publish_content_draft
+
+    conn = get_connection()
+    success = publish_content_draft(conn, draft_id, url=url)
+    conn.close()
+
+    if success:
+        _print(f"[green]✓[/green] Draft {draft_id} marked as published" if HAS_RICH else f"✓ Draft {draft_id} marked as published")
+    else:
+        _print(f"No draft found with ID {draft_id}")
+
+
+@presence_app.command("linkedin-headline")
+def presence_linkedin_headline():
+    """Generate LinkedIn headline options from your profile."""
+    from beacon.presence.generator import generate_linkedin_headline
+
+    conn = get_connection()
+    _print("Generating LinkedIn headlines..." if not HAS_RICH else "[bold]Generating LinkedIn headlines...[/bold]")
+    try:
+        content = generate_linkedin_headline(conn)
+    except RuntimeError as e:
+        _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+        conn.close()
+        raise typer.Exit(1)
+
+    from beacon.db.content import add_content_draft
+    draft_id = add_content_draft(conn, "headline", "linkedin", "LinkedIn Headline Options", content)
+    conn.close()
+
+    print(content)
+    _print(f"\n[dim]Saved as draft #{draft_id}[/dim]" if HAS_RICH else f"\nSaved as draft #{draft_id}")
+
+
+@presence_app.command("linkedin-about")
+def presence_linkedin_about():
+    """Generate a LinkedIn About section from your profile."""
+    from beacon.presence.generator import generate_linkedin_about
+    from beacon.presence.adapters import adapt_for_linkedin
+
+    conn = get_connection()
+    _print("Generating LinkedIn About..." if not HAS_RICH else "[bold]Generating LinkedIn About...[/bold]")
+    try:
+        content = generate_linkedin_about(conn)
+        content = adapt_for_linkedin(content, max_chars=2600)
+    except RuntimeError as e:
+        _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+        conn.close()
+        raise typer.Exit(1)
+
+    from beacon.db.content import add_content_draft
+    draft_id = add_content_draft(conn, "about", "linkedin", "LinkedIn About Section", content)
+    conn.close()
+
+    print(content)
+    _print(f"\n[dim]Saved as draft #{draft_id}[/dim]" if HAS_RICH else f"\nSaved as draft #{draft_id}")
+
+
+@presence_app.command("linkedin-post")
+def presence_linkedin_post(
+    topic: str = typer.Option(..., "--topic", "-t", help="Post topic"),
+    tone: str = typer.Option("professional", "--tone", help="Tone: professional, conversational, technical"),
+):
+    """Generate a LinkedIn post draft on a given topic."""
+    from beacon.presence.generator import generate_linkedin_post
+    from beacon.presence.adapters import adapt_for_linkedin
+
+    conn = get_connection()
+    _print("Generating LinkedIn post..." if not HAS_RICH else "[bold]Generating LinkedIn post...[/bold]")
+    try:
+        content = generate_linkedin_post(conn, topic, tone=tone)
+        content = adapt_for_linkedin(content)
+    except RuntimeError as e:
+        _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+        conn.close()
+        raise typer.Exit(1)
+
+    from beacon.db.content import add_content_draft
+    draft_id = add_content_draft(
+        conn, "post", "linkedin", f"LinkedIn Post: {topic[:50]}",
+        content, metadata={"topic": topic, "tone": tone},
+    )
+    conn.close()
+
+    print(content)
+    _print(f"\n[dim]Saved as draft #{draft_id}[/dim]" if HAS_RICH else f"\nSaved as draft #{draft_id}")
+
+
+@presence_app.command("blog-outline")
+def presence_blog_outline(
+    topic: str = typer.Option(..., "--topic", "-t", help="Blog post topic"),
+):
+    """Generate a blog post outline on a given topic."""
+    from beacon.presence.generator import generate_blog_outline
+
+    conn = get_connection()
+    _print("Generating blog outline..." if not HAS_RICH else "[bold]Generating blog outline...[/bold]")
+    try:
+        content = generate_blog_outline(conn, topic)
+    except RuntimeError as e:
+        _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+        conn.close()
+        raise typer.Exit(1)
+
+    from beacon.db.content import add_content_draft
+    draft_id = add_content_draft(
+        conn, "outline", "blog", f"Blog Outline: {topic[:50]}", content,
+        metadata={"topic": topic},
+    )
+    conn.close()
+
+    print(content)
+    _print(f"\n[dim]Saved as draft #{draft_id}[/dim]" if HAS_RICH else f"\nSaved as draft #{draft_id}")
+
+
+@presence_app.command("blog-generate")
+def presence_blog_generate(
+    topic: str = typer.Option(..., "--topic", "-t", help="Blog post topic"),
+    output: str = typer.Option(None, "--output", "-o", help="Output file path"),
+):
+    """Generate a full blog post on a given topic."""
+    from beacon.presence.generator import generate_blog_post
+
+    conn = get_connection()
+    _print("Generating blog post..." if not HAS_RICH else "[bold]Generating blog post...[/bold]")
+    try:
+        content = generate_blog_post(conn, topic)
+    except RuntimeError as e:
+        _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+        conn.close()
+        raise typer.Exit(1)
+
+    from beacon.db.content import add_content_draft
+    draft_id = add_content_draft(
+        conn, "post", "blog", f"Blog Post: {topic[:50]}", content,
+        metadata={"topic": topic},
+    )
+    conn.close()
+
+    if output:
+        Path(output).write_text(content)
+        _print(f"[green]✓[/green] Blog post saved to {output} (draft #{draft_id})" if HAS_RICH else f"✓ Blog post saved to {output} (draft #{draft_id})")
+    else:
+        print(content)
+        _print(f"\n[dim]Saved as draft #{draft_id}[/dim]" if HAS_RICH else f"\nSaved as draft #{draft_id}")
+
+
+@presence_app.command("blog-export")
+def presence_blog_export(
+    draft_id: int = typer.Argument(help="Draft ID to export"),
+    format: str = typer.Option("astro", "--format", "-f", help="Export format: astro, medium, devto"),
+    output: str = typer.Option(None, "--output", "-o", help="Output file path"),
+):
+    """Export a blog draft for a specific platform."""
+    from beacon.db.content import get_content_draft_by_id
+    from beacon.presence.adapters import adapt_for_blog_markdown, adapt_for_devto, adapt_for_medium
+
+    conn = get_connection()
+    draft = get_content_draft_by_id(conn, draft_id)
+    conn.close()
+
+    if not draft:
+        _print(f"No draft found with ID {draft_id}")
+        raise typer.Exit(1)
+
+    metadata = json.loads(draft["metadata"]) if draft["metadata"] else {}
+
+    if format == "astro":
+        content = adapt_for_blog_markdown(draft["body"], title=draft["title"])
+    elif format == "medium":
+        content = adapt_for_medium(draft["body"])
+    elif format == "devto":
+        content = adapt_for_devto(draft["body"], title=draft["title"],
+                                   tags=metadata.get("tags", []))
+    else:
+        _print(f"Unknown format: {format}. Use astro, medium, or devto.")
+        raise typer.Exit(1)
+
+    if output:
+        Path(output).write_text(content)
+        _print(f"[green]✓[/green] Exported to {output}" if HAS_RICH else f"✓ Exported to {output}")
+    else:
+        print(content)
+
+
+@presence_app.command("calendar")
+def presence_calendar(
+    platform: str = typer.Option(None, "--platform", "-p", help="Filter by platform"),
+    status: str = typer.Option(None, "--status", "-s", help="Filter by status"),
+):
+    """List content calendar entries."""
+    from beacon.db.content import get_calendar_entries
+
+    conn = get_connection()
+    entries = get_calendar_entries(conn, platform=platform, status=status)
+    conn.close()
+
+    if not entries:
+        _print("No calendar entries found.")
+        return
+
+    if HAS_RICH:
+        table = Table(title="Content Calendar")
+        table.add_column("ID", style="dim", width=4)
+        table.add_column("Title", style="bold", width=35)
+        table.add_column("Platform")
+        table.add_column("Type")
+        table.add_column("Target Date")
+        table.add_column("Status")
+        for e in entries:
+            status_color = "green" if e["status"] == "published" else "yellow" if e["status"] == "drafted" else "dim"
+            table.add_row(
+                str(e["id"]),
+                e["title"][:35],
+                e["platform"],
+                e["content_type"],
+                e["target_date"] or "",
+                f"[{status_color}]{e['status']}[/{status_color}]",
+            )
+        console.print(table)
+    else:
+        for e in entries:
+            date = e["target_date"] or "no date"
+            print(f"  [{e['id']}] [{e['platform']}] {e['title']} ({e['status']}, {date})")
+
+
+@presence_app.command("calendar-add")
+def presence_calendar_add(
+    title: str = typer.Option(..., "--title", "-t", help="Entry title"),
+    platform: str = typer.Option(..., "--platform", "-p", help="Target platform"),
+    content_type: str = typer.Option("post", "--type", help="Content type"),
+    topic: str = typer.Option(None, "--topic", help="Topic"),
+    date: str = typer.Option(None, "--date", "-d", help="Target date (YYYY-MM-DD)"),
+    notes: str = typer.Option(None, "--notes", "-n", help="Notes"),
+):
+    """Add a content calendar entry."""
+    from beacon.db.content import add_calendar_entry
+
+    conn = get_connection()
+    entry_id = add_calendar_entry(
+        conn, title, platform, content_type,
+        topic=topic, target_date=date, notes=notes,
+    )
+    conn.close()
+
+    _print(f"[green]✓[/green] Calendar entry #{entry_id} created" if HAS_RICH else f"✓ Calendar entry #{entry_id} created")
+
+
+@presence_app.command("calendar-seed")
+def presence_calendar_seed():
+    """Auto-generate calendar entries from content ideas."""
+    from beacon.presence.generator import generate_content_ideas
+    from beacon.db.content import add_calendar_entry
+
+    conn = get_connection()
+    _print("Generating content ideas..." if not HAS_RICH else "[bold]Generating content ideas...[/bold]")
+    try:
+        ideas = generate_content_ideas(conn)
+    except RuntimeError as e:
+        _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+        conn.close()
+        raise typer.Exit(1)
+
+    # Parse ideas and create calendar entries
+    count = 0
+    for line in ideas.strip().split("\n"):
+        line = line.strip()
+        if not line or not line[0].isdigit():
+            continue
+        # Extract title (everything after "N. " or "N) ")
+        title = line.lstrip("0123456789.)")
+        title = title.strip(" -:").strip()
+        if title:
+            add_calendar_entry(conn, title[:100], "blog", "post", topic=title[:100])
+            count += 1
+
+    conn.close()
+    _print(f"[green]✓[/green] Created {count} calendar entries" if HAS_RICH else f"✓ Created {count} calendar entries")
+
+
+@presence_app.command("site-generate")
+def presence_site_generate(
+    output_dir: str = typer.Option("site/src/content", "--output", "-o", help="Output directory"),
+):
+    """Generate Astro-ready content files from profile data."""
+    from beacon.presence.site import export_site_content
+
+    conn = get_connection()
+    _print("Generating site content..." if not HAS_RICH else "[bold]Generating site content...[/bold]")
+    try:
+        files = export_site_content(conn, output_dir)
+    except RuntimeError as e:
+        _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+        conn.close()
+        raise typer.Exit(1)
+    conn.close()
+
+    _print(f"[green]✓[/green] Generated {len(files)} content files:" if HAS_RICH else f"✓ Generated {len(files)} content files:")
+    for f in files:
+        _print(f"  {f}")
+
+
+@presence_app.command("site-resume")
+def presence_site_resume(
+    output: str = typer.Option(None, "--output", "-o", help="Output file path"),
+):
+    """Generate a resume page for the personal site."""
+    from beacon.presence.site import generate_resume_page
+
+    conn = get_connection()
+    content = generate_resume_page(conn)
+    conn.close()
+
+    if output:
+        Path(output).parent.mkdir(parents=True, exist_ok=True)
+        Path(output).write_text(content)
+        _print(f"[green]✓[/green] Resume page saved to {output}" if HAS_RICH else f"✓ Resume page saved to {output}")
+    else:
+        print(content)
+
+
+@presence_app.command("site-projects")
+def presence_site_projects(
+    output_dir: str = typer.Option(None, "--output", "-o", help="Output directory"),
+):
+    """Generate project pages for the personal site."""
+    from beacon.presence.site import generate_project_page
+    from beacon.db.profile import get_projects
+
+    conn = get_connection()
+    projects = get_projects(conn)
+
+    if not projects:
+        _print("No projects found in profile.")
+        conn.close()
+        return
+
+    files = []
+    for proj in projects:
+        content = generate_project_page(proj)
+        if output_dir:
+            out_path = Path(output_dir)
+            out_path.mkdir(parents=True, exist_ok=True)
+            slug = proj["name"].lower().replace(" ", "-")
+            file_path = out_path / f"{slug}.md"
+            file_path.write_text(content)
+            files.append(str(file_path))
+        else:
+            print(content)
+            print("---")
+
+    conn.close()
+
+    if output_dir:
+        _print(f"[green]✓[/green] Generated {len(files)} project pages" if HAS_RICH else f"✓ Generated {len(files)} project pages")
+
+
+@presence_app.command("enrich")
+def presence_enrich(
+    work_id: int = typer.Option(None, "--work-id", "-w", help="Work experience ID"),
+    list_gaps: bool = typer.Option(False, "--list-gaps", help="List missing profile information"),
+    generate_content: bool = typer.Option(False, "--generate-content", help="Generate content from enrichment"),
+):
+    """Start enrichment interview for accomplishments."""
+    from beacon.presence.enrichment import generate_missing_info_todos, run_enrichment_interview
+
+    conn = get_connection()
+
+    if list_gaps:
+        gaps = generate_missing_info_todos(conn)
+        conn.close()
+        if HAS_RICH:
+            console.print(Panel("[bold]Profile Gaps & Missing Information[/bold]", style="blue"))
+        else:
+            print("\nProfile Gaps & Missing Information")
+        for gap in gaps:
+            _print(f"  {gap}")
+        return
+
+    interview_console = Console() if HAS_RICH else Console()
+    run_enrichment_interview(interview_console, conn, work_experience_id=work_id, generate_content=generate_content)
+    conn.close()
 
 
 def main():
