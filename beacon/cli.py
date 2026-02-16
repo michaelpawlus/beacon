@@ -38,11 +38,15 @@ report_app = typer.Typer(help="Report generation")
 profile_app = typer.Typer(help="Professional profile management")
 application_app = typer.Typer(help="Application tracking")
 presence_app = typer.Typer(help="Professional presence & content generation")
+config_app = typer.Typer(help="Configuration management")
+automation_app = typer.Typer(help="Automation and scheduling")
 app.add_typer(job_app, name="job")
 app.add_typer(report_app, name="report")
 app.add_typer(profile_app, name="profile")
 app.add_typer(application_app, name="application")
 app.add_typer(presence_app, name="presence")
+app.add_typer(config_app, name="config")
+app.add_typer(automation_app, name="automation")
 console = Console() if HAS_RICH else None
 
 
@@ -1612,6 +1616,391 @@ def presence_enrich(
     interview_console = Console() if HAS_RICH else Console()
     run_enrichment_interview(interview_console, conn, work_experience_id=work_id, generate_content=generate_content)
     conn.close()
+
+
+# --- Phase 5: Configuration commands ---
+
+@config_app.command("show")
+def config_show():
+    """Show current configuration."""
+    from beacon.config import load_config
+    config = load_config()
+    if HAS_RICH:
+        console.print(Panel("[bold]Beacon Configuration[/bold]", style="blue"))
+    else:
+        print("\nBeacon Configuration")
+    _print(f"  notification_email:     {config.notification_email or '(not set)'}")
+    _print(f"  smtp_host:              {config.smtp_host or '(not set)'}")
+    _print(f"  smtp_port:              {config.smtp_port}")
+    _print(f"  smtp_user:              {config.smtp_user or '(not set)'}")
+    _print(f"  smtp_password:          {'****' if config.smtp_password else '(not set)'}")
+    _print(f"  notification_cadence:   {config.notification_cadence}")
+    _print(f"  scan_cadence:           {config.scan_cadence}")
+    _print(f"  min_relevance_alert:    {config.min_relevance_alert}")
+    _print(f"  desktop_notifications:  {config.desktop_notifications}")
+    _print(f"  log_level:              {config.log_level}")
+    _print(f"  log_file:               {config.log_file}")
+
+
+@config_app.command("set")
+def config_set(
+    key: str = typer.Argument(help="Configuration key"),
+    value: str = typer.Argument(help="New value"),
+):
+    """Set a configuration value."""
+    from beacon.config import get_config_value, load_config, save_config, set_config_value
+    config = load_config()
+    try:
+        set_config_value(config, key, value)
+    except KeyError as e:
+        _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+        raise typer.Exit(1)
+    errors = config.validate()
+    if errors:
+        _print(f"[yellow]Warning:[/yellow] {'; '.join(errors)}" if HAS_RICH else f"Warning: {'; '.join(errors)}")
+    save_config(config)
+    _print(f"[green]✓[/green] {key} = {get_config_value(config, key)}" if HAS_RICH else f"✓ {key} = {get_config_value(config, key)}")
+
+
+@config_app.command("init")
+def config_init():
+    """Create a default configuration file."""
+    from beacon.config import BeaconConfig, save_config
+    path = save_config(BeaconConfig())
+    _print(f"[green]✓[/green] Configuration file created at {path}" if HAS_RICH else f"✓ Configuration file created at {path}")
+
+
+# --- Phase 5: Feedback tracking commands ---
+
+@application_app.command("outcome")
+def application_outcome(
+    app_id: int = typer.Argument(help="Application ID"),
+    outcome: str = typer.Option(..., "--outcome", "-o", help="Outcome type: no_response, rejection_auto, rejection_human, phone_screen, technical, onsite, offer, accepted"),
+    days: int = typer.Option(None, "--days", "-d", help="Days until response"),
+    notes: str = typer.Option(None, "--notes", "-n", help="Notes about the outcome"),
+):
+    """Record an outcome for an application."""
+    from beacon.db.feedback import record_outcome
+    conn = get_connection()
+    try:
+        outcome_id = record_outcome(conn, app_id, outcome, response_days=days, notes=notes)
+        _print(f"[green]✓[/green] Outcome recorded (#{outcome_id})" if HAS_RICH else f"✓ Outcome recorded (#{outcome_id})")
+    except ValueError as e:
+        _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+        raise typer.Exit(1)
+    finally:
+        conn.close()
+
+
+@application_app.command("outcomes")
+def application_outcomes(
+    outcome_filter: str = typer.Option(None, "--outcome", "-o", help="Filter by outcome type"),
+):
+    """List all recorded outcomes."""
+    from beacon.db.feedback import get_outcomes
+    conn = get_connection()
+    outcomes = get_outcomes(conn, outcome_filter=outcome_filter)
+    conn.close()
+
+    if not outcomes:
+        _print("No outcomes recorded.")
+        return
+
+    if HAS_RICH:
+        table = Table(title="Application Outcomes")
+        table.add_column("ID", style="dim", width=4)
+        table.add_column("App", width=4)
+        table.add_column("Outcome", style="bold")
+        table.add_column("Days", justify="right")
+        table.add_column("Notes", width=40)
+        table.add_column("Recorded")
+        for o in outcomes:
+            table.add_row(
+                str(o["id"]),
+                str(o["application_id"]),
+                o["outcome"],
+                str(o["response_days"]) if o["response_days"] else "",
+                (o["notes"] or "")[:40],
+                o["recorded_at"][:10] if o["recorded_at"] else "",
+            )
+        console.print(table)
+    else:
+        for o in outcomes:
+            days_str = f" ({o['response_days']}d)" if o["response_days"] else ""
+            print(f"  [{o['id']}] App #{o['application_id']}: {o['outcome']}{days_str}")
+
+
+@application_app.command("effectiveness")
+def application_effectiveness():
+    """Show resume variant effectiveness analysis."""
+    from beacon.db.feedback import get_outcome_stats, get_variant_effectiveness
+    conn = get_connection()
+    stats = get_outcome_stats(conn)
+    variants = get_variant_effectiveness(conn)
+    conn.close()
+
+    if HAS_RICH:
+        console.print(Panel("[bold]Application Effectiveness[/bold]", style="blue"))
+    else:
+        print("\nApplication Effectiveness")
+
+    if stats:
+        _print("\n[bold]Outcome Distribution:[/bold]" if HAS_RICH else "\nOutcome Distribution:")
+        for s in stats:
+            _print(f"  {s['outcome']}: {s['count']} (avg {s['avg_days']:.0f}d)" if s["avg_days"] else f"  {s['outcome']}: {s['count']}")
+    else:
+        _print("  No outcomes recorded yet.")
+
+    if variants:
+        _print("\n[bold]Resume Variants:[/bold]" if HAS_RICH else "\nResume Variants:")
+        for v in variants:
+            _print(f"  {v['variant_label']}: {v['count']} uses")
+    else:
+        _print("\n  No resume variants tracked yet.")
+
+
+# --- Phase 5: Dashboard command ---
+
+@app.command()
+def dashboard(
+    compact: bool = typer.Option(False, "--compact", help="Show compact dashboard"),
+):
+    """Show the unified Beacon dashboard."""
+    from beacon.dashboard import gather_dashboard_data
+    from beacon.dashboard_render import render_dashboard
+    conn = get_connection()
+    data = gather_dashboard_data(conn)
+    conn.close()
+    render_dashboard(console if HAS_RICH else None, data, compact=compact)
+
+
+# --- Phase 5: Notification test command ---
+
+@automation_app.command("test-notify")
+def automation_test_notify():
+    """Send a test notification."""
+    from beacon.config import load_config
+    from beacon.notifications.registry import notify_all
+    config = load_config()
+    results = notify_all(config, "Beacon Test", "This is a test notification from Beacon.", urgency="low")
+    if any(results):
+        _print("[green]✓[/green] Test notification sent" if HAS_RICH else "✓ Test notification sent")
+    else:
+        _print("[yellow]⚠[/yellow] No notifications configured or all failed" if HAS_RICH else "⚠ No notifications configured or all failed")
+
+
+# --- Phase 5: Automation commands ---
+
+@automation_app.command("run")
+def automation_run(
+    scan_only: bool = typer.Option(False, "--scan-only", help="Only scan for new jobs"),
+    digest_only: bool = typer.Option(False, "--digest-only", help="Only send digest"),
+):
+    """Run an automation cycle."""
+    from beacon.automation.runner import run_automation_cycle, run_digest, run_scan_only
+    from beacon.config import load_config
+    config = load_config()
+    conn = get_connection()
+    try:
+        if scan_only:
+            result = run_scan_only(conn, config)
+        elif digest_only:
+            result = run_digest(conn, config)
+        else:
+            result = run_automation_cycle(conn, config)
+        _print(f"[green]✓[/green] Automation complete: {result['jobs_found']} jobs found, {result['new_relevant_jobs']} relevant" if HAS_RICH else f"✓ Automation complete: {result['jobs_found']} jobs found, {result['new_relevant_jobs']} relevant")
+    except Exception as e:
+        _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+        raise typer.Exit(1)
+    finally:
+        conn.close()
+
+
+@automation_app.command("log")
+def automation_log(
+    limit: int = typer.Option(10, "--limit", "-l", help="Number of recent entries"),
+):
+    """Show automation run history."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM automation_log ORDER BY started_at DESC LIMIT ?", (limit,)
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        _print("No automation runs recorded.")
+        return
+
+    if HAS_RICH:
+        table = Table(title="Automation Log")
+        table.add_column("ID", style="dim", width=4)
+        table.add_column("Type", style="bold")
+        table.add_column("Started")
+        table.add_column("Jobs", justify="right")
+        table.add_column("Relevant", justify="right")
+        table.add_column("Notified", justify="right")
+        table.add_column("Duration", justify="right")
+        table.add_column("Errors")
+        for r in rows:
+            duration = f"{r['duration_seconds']:.1f}s" if r["duration_seconds"] else ""
+            table.add_row(
+                str(r["id"]),
+                r["run_type"],
+                r["started_at"][:16] if r["started_at"] else "",
+                str(r["jobs_found"]),
+                str(r["new_relevant_jobs"]),
+                str(r["notifications_sent"]),
+                duration,
+                (r["errors"] or "")[:30],
+            )
+        console.print(table)
+    else:
+        for r in rows:
+            print(f"  [{r['id']}] {r['run_type']} at {r['started_at']}: {r['jobs_found']} jobs, {r['new_relevant_jobs']} relevant")
+
+
+@automation_app.command("cron")
+def automation_cron(
+    action: str = typer.Argument(help="Action: install, uninstall, status"),
+    every: int = typer.Option(6, "--every", help="Run every N hours (for install)"),
+):
+    """Manage cron-based automation scheduling."""
+    from beacon.automation.cron_helper import generate_crontab_entry, install_crontab, show_crontab_status, uninstall_crontab
+    if action == "install":
+        entry = generate_crontab_entry(every)
+        success = install_crontab(entry)
+        if success:
+            _print(f"[green]✓[/green] Cron installed: every {every} hours" if HAS_RICH else f"✓ Cron installed: every {every} hours")
+        else:
+            _print("[red]Failed to install crontab[/red]" if HAS_RICH else "Failed to install crontab")
+    elif action == "uninstall":
+        success = uninstall_crontab()
+        if success:
+            _print("[green]✓[/green] Cron uninstalled" if HAS_RICH else "✓ Cron uninstalled")
+        else:
+            _print("[yellow]No beacon cron entry found[/yellow]" if HAS_RICH else "No beacon cron entry found")
+    elif action == "status":
+        status = show_crontab_status()
+        _print(status)
+    else:
+        _print(f"Unknown action: {action}. Use install, uninstall, or status.")
+
+
+# --- Phase 5: Agent Orchestration commands ---
+
+@automation_app.command("agents")
+def automation_agents(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Plan but don't execute"),
+):
+    """Run all automation agents."""
+    from beacon.agents.orchestrator import Orchestrator
+    from beacon.config import load_config
+    config = load_config()
+    conn = get_connection()
+    try:
+        orchestrator = Orchestrator()
+        results = orchestrator.run(conn, config, dry_run=dry_run)
+        mode = " (dry run)" if dry_run else ""
+        _print(f"[green]✓[/green] Agents complete{mode}: {len(results)} agents ran" if HAS_RICH else f"✓ Agents complete{mode}: {len(results)} agents ran")
+        for name, summary in results.items():
+            _print(f"  {name}: {summary}")
+    except Exception as e:
+        _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+        raise typer.Exit(1)
+    finally:
+        conn.close()
+
+
+@automation_app.command("agents-status")
+def automation_agents_status():
+    """Show recent agent run summaries."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM automation_log WHERE run_type = 'full' ORDER BY started_at DESC LIMIT 5"
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        _print("No agent runs recorded.")
+        return
+
+    _print("[bold]Recent Agent Runs:[/bold]" if HAS_RICH else "Recent Agent Runs:")
+    for r in rows:
+        duration = f" ({r['duration_seconds']:.1f}s)" if r["duration_seconds"] else ""
+        status = "[green]OK[/green]" if not r["errors"] else f"[red]Error[/red]"
+        if not HAS_RICH:
+            status = "OK" if not r["errors"] else "Error"
+        _print(f"  {r['started_at'][:16]}: {status}{duration} — {r['signals_refreshed']} signals, {r['new_relevant_jobs']} jobs")
+
+
+# --- Phase 5: Scoring feedback commands ---
+
+@report_app.command("scoring-feedback")
+def report_scoring_feedback():
+    """Show scoring calibration report."""
+    from beacon.research.scoring_calibration import generate_scoring_report
+    conn = get_connection()
+    report = generate_scoring_report(conn)
+    conn.close()
+    print(report)
+
+
+@report_app.command("variant-effectiveness")
+def report_variant_effectiveness():
+    """Show resume variant effectiveness report."""
+    from beacon.materials.variant_tracker import generate_variant_report
+    conn = get_connection()
+    report = generate_variant_report(conn)
+    conn.close()
+    print(report)
+
+
+# --- Phase 5: Onboarding command ---
+
+@app.command()
+def guide():
+    """Show the Beacon onboarding guide."""
+    guide_text = """
+Getting Started with Beacon
+============================
+
+1. Initialize: beacon init
+   Set up the database with 38+ AI-first companies.
+
+2. Build Your Profile:
+   beacon profile interview     (interactive)
+   beacon profile import <file> (from JSON)
+
+3. Configure Preferences:
+   beacon config init
+   beacon config set notification_email you@example.com
+   beacon config set min_relevance_alert 7.0
+
+4. Scan for Jobs:
+   beacon scan
+   beacon jobs --min-relevance 7.0
+
+5. Review Dashboard:
+   beacon dashboard
+
+6. Apply to Jobs:
+   beacon job apply <id> --generate
+   beacon application outcome <id> --outcome phone_screen
+
+7. Set Up Automation:
+   beacon automation cron install --every 6
+
+8. Build Presence:
+   beacon presence github
+   beacon presence linkedin-post --topic "your topic"
+   beacon presence site-generate
+
+Run 'beacon --help' for all commands.
+"""
+    if HAS_RICH:
+        console.print(Panel(guide_text.strip(), title="Beacon Guide", style="blue"))
+    else:
+        print(guide_text)
 
 
 def main():

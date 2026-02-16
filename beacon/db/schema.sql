@@ -245,6 +245,53 @@ CREATE TABLE IF NOT EXISTS accomplishments (
     updated_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Phase 5: Feedback tracking
+
+-- Application outcomes for feedback loop
+CREATE TABLE IF NOT EXISTS application_outcomes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    application_id INTEGER NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
+    outcome TEXT NOT NULL CHECK(outcome IN (
+        'no_response', 'rejection_auto', 'rejection_human',
+        'phone_screen', 'technical', 'onsite', 'offer', 'accepted'
+    )),
+    response_days INTEGER,
+    notes TEXT,
+    recorded_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Resume variant tracking
+CREATE TABLE IF NOT EXISTS resume_variants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    application_id INTEGER NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
+    variant_label TEXT NOT NULL,
+    strategy_notes TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Signal refresh tracking
+CREATE TABLE IF NOT EXISTS signal_refresh_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    signals_added INTEGER DEFAULT 0,
+    signals_updated INTEGER DEFAULT 0,
+    refreshed_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Automation run log
+CREATE TABLE IF NOT EXISTS automation_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_type TEXT NOT NULL CHECK(run_type IN ('full', 'scan', 'digest', 'signal_refresh')),
+    started_at TEXT DEFAULT (datetime('now')),
+    completed_at TEXT,
+    jobs_found INTEGER DEFAULT 0,
+    new_relevant_jobs INTEGER DEFAULT 0,
+    notifications_sent INTEGER DEFAULT 0,
+    signals_refreshed INTEGER DEFAULT 0,
+    errors TEXT,
+    duration_seconds REAL
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_companies_score ON companies(ai_first_score DESC);
 CREATE INDEX IF NOT EXISTS idx_companies_tier ON companies(tier);
@@ -263,3 +310,9 @@ CREATE INDEX IF NOT EXISTS idx_content_drafts_status ON content_drafts(status);
 CREATE INDEX IF NOT EXISTS idx_content_calendar_platform ON content_calendar(platform);
 CREATE INDEX IF NOT EXISTS idx_content_calendar_status ON content_calendar(status);
 CREATE INDEX IF NOT EXISTS idx_accomplishments_work_exp ON accomplishments(work_experience_id);
+CREATE INDEX IF NOT EXISTS idx_outcomes_application ON application_outcomes(application_id);
+CREATE INDEX IF NOT EXISTS idx_outcomes_outcome ON application_outcomes(outcome);
+CREATE INDEX IF NOT EXISTS idx_resume_variants_application ON resume_variants(application_id);
+CREATE INDEX IF NOT EXISTS idx_signal_refresh_company ON signal_refresh_log(company_id);
+CREATE INDEX IF NOT EXISTS idx_automation_log_type ON automation_log(run_type);
+CREATE INDEX IF NOT EXISTS idx_automation_log_started ON automation_log(started_at DESC);

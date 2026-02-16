@@ -1,0 +1,1 @@
+"""Beacon automation and scheduling."""

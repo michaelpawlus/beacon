@@ -261,6 +261,74 @@ Content adapters handle platform constraints:
 - **Medium:** Remove frontmatter, convert H1 to H2
 - **Dev.to:** Liquid tags frontmatter, max 4 tags
 
+## Phase 5: Integration & Polish
+
+Phase 5 wires everything together into a cohesive daily-use tool.
+
+```bash
+# Configuration
+beacon config init                     # create default config
+beacon config show                     # view current settings
+beacon config set min_relevance_alert 7.0
+
+# Unified Dashboard
+beacon dashboard                       # full dashboard with all sections
+beacon dashboard --compact             # compact view
+
+# Feedback Tracking
+beacon application outcome 1 --outcome phone_screen --days 5
+beacon application outcomes            # list all outcomes
+beacon application effectiveness       # view effectiveness analysis
+
+# Notifications & Automation
+beacon automation test-notify          # test notification delivery
+beacon automation run                  # full scan → notify cycle
+beacon automation run --scan-only      # scan only
+beacon automation run --digest-only    # digest only
+beacon automation cron install --every 6   # schedule via cron
+beacon automation cron status
+beacon automation log                  # view run history
+
+# Agent Orchestration
+beacon automation agents               # run all agents
+beacon automation agents --dry-run     # preview agent plans
+beacon automation agents-status        # recent agent runs
+
+# Scoring Feedback Loop
+beacon report scoring-feedback         # calibration report
+beacon report variant-effectiveness    # resume variant analysis
+
+# Onboarding
+beacon guide                           # quick-start guide
+```
+
+### Architecture
+
+```
+beacon dashboard
+    │
+    ├─ Company Watchlist (Phase 1 data, sorted by score)
+    ├─ Top Job Matches (Phase 2 data, sorted by relevance)
+    ├─ Application Pipeline (Phase 3 data, by status)
+    ├─ Presence Health (Phase 4 data, freshness indicators)
+    ├─ Content Pipeline (drafts, calendar, overdue items)
+    ├─ Feedback Summary (outcome distribution)
+    └─ Action Items (auto-generated priorities)
+
+beacon automation run
+    │
+    ├─ Scan all career pages (Phase 2)
+    ├─ Filter by min_relevance_alert
+    ├─ Send notifications (email + desktop)
+    └─ Log to automation_log
+
+beacon automation agents
+    │
+    ├─ ResearchAgent: refresh stale company signals
+    ├─ JobAnalystAgent: re-score borderline jobs (4-7)
+    └─ ApplicationPrepAgent: create drafts for unapplied matches
+```
+
 ## Project Roadmap
 
 Beacon is the foundation for a larger job search automation platform:
@@ -269,6 +337,14 @@ Beacon is the foundation for a larger job search automation platform:
 - [x] **Phase 2:** Job Scanner — monitor career pages, score relevance, generate reports
 - [x] **Phase 3:** Application Generator — profile knowledge base, LLM-powered resume/cover letter generation, application tracking
 - [x] **Phase 4:** Professional Presence — content generation, enrichment interviews, personal website export
+- [x] **Phase 5:** Integration & Polish — dashboard, feedback loops, notifications, automation, agent orchestration
+
+## Documentation
+
+- [Onboarding Guide](docs/onboarding-guide.md) — step-by-step setup
+- [Best Practices](docs/best-practices.md) — recommended cadences
+- [User Roadmap](docs/user-roadmap.md) — building momentum over time
+- [Phase 5 Journal](docs/phase-5-journal.md) — development notes
 
 ## Contributing Signals
 
