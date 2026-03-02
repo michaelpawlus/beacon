@@ -139,8 +139,11 @@ def generate_project_page(project: sqlite3.Row) -> str:
 
 def generate_about_page(conn: sqlite3.Connection) -> str:
     """Generate an about page as markdown with YAML frontmatter."""
+    from beacon.db.speaker import get_speaker_profile
+
     work = get_work_experiences(conn)
     skills = get_skills(conn)
+    speaker = get_speaker_profile(conn)
 
     parts = [
         "---",
@@ -152,6 +155,14 @@ def generate_about_page(conn: sqlite3.Connection) -> str:
         "# About",
         "",
     ]
+
+    if speaker and speaker["headshot_path"]:
+        parts.append(f"![Headshot]({speaker['headshot_path']})")
+        parts.append("")
+
+    if speaker and speaker["short_bio"]:
+        parts.append(speaker["short_bio"])
+        parts.append("")
 
     if work:
         current = [w for w in work if not w["end_date"]]
@@ -170,6 +181,66 @@ def generate_about_page(conn: sqlite3.Connection) -> str:
         parts.append("## What I Work With\n")
         for cat, skill_list in sorted(categories.items()):
             parts.append(f"**{cat.title()}:** {', '.join(skill_list)}\n")
+
+    return "\n".join(parts)
+
+
+def generate_talks_page(conn: sqlite3.Connection) -> str:
+    """Generate a talks/presentations page as markdown with YAML frontmatter."""
+    from beacon.db.speaker import get_presentations, get_upcoming_presentations
+
+    upcoming = get_upcoming_presentations(conn)
+    all_presentations = get_presentations(conn)
+    past = [p for p in all_presentations if p["status"] == "delivered"]
+
+    parts = [
+        "---",
+        'title: "Talks"',
+        'description: "Conference talks and presentations"',
+        "layout: ../layouts/Page.astro",
+        "---",
+        "",
+        "# Talks",
+        "",
+    ]
+
+    if upcoming:
+        parts.append("## Upcoming\n")
+        for p in upcoming:
+            event = f" — {p['event_name']}" if p["event_name"] else ""
+            parts.append(f"### {p['title']}{event}")
+            if p["date"]:
+                parts.append(f"*{p['date']}*\n")
+            if p["abstract"]:
+                parts.append(p["abstract"])
+                parts.append("")
+            if p["key_points"]:
+                for kp in json.loads(p["key_points"]):
+                    parts.append(f"- {kp}")
+                parts.append("")
+
+    if past:
+        parts.append("## Past Talks\n")
+        for p in past:
+            event = f" — {p['event_name']}" if p["event_name"] else ""
+            parts.append(f"### {p['title']}{event}")
+            if p["date"]:
+                parts.append(f"*{p['date']}*\n")
+            if p["abstract"]:
+                parts.append(p["abstract"])
+                parts.append("")
+            links = []
+            if p["slides_url"]:
+                links.append(f"[Slides]({p['slides_url']})")
+            if p["recording_url"]:
+                links.append(f"[Recording]({p['recording_url']})")
+            if links:
+                parts.append(" | ".join(links))
+                parts.append("")
+
+    if not upcoming and not past:
+        parts.append("No talks recorded yet.")
+        parts.append("")
 
     return "\n".join(parts)
 
@@ -194,6 +265,12 @@ def export_site_content(conn: sqlite3.Connection, output_dir: str = "site/src/co
     about_path = out / "about.md"
     about_path.write_text(about)
     files.append(str(about_path))
+
+    # Talks page
+    talks = generate_talks_page(conn)
+    talks_path = out / "talks.md"
+    talks_path.write_text(talks)
+    files.append(str(talks_path))
 
     # Project pages
     projects = get_projects(conn)

@@ -1,6 +1,5 @@
 """Tests for beacon.presence.generator — content generation engine."""
 
-import json
 from unittest.mock import patch
 
 import pytest
@@ -13,9 +12,11 @@ from beacon.db.profile import (
     add_skill,
     add_work_experience,
 )
+from beacon.db.speaker import add_presentation
 from beacon.llm.client import LLMResponse
 from beacon.presence.generator import (
     build_full_profile_context,
+    build_presentations_context,
     generate_blog_outline,
     generate_blog_post,
     generate_content_angles,
@@ -25,6 +26,8 @@ from beacon.presence.generator import (
     generate_linkedin_about,
     generate_linkedin_headline,
     generate_linkedin_post,
+    generate_speaker_bio_long,
+    generate_speaker_bio_short,
 )
 
 MOCK_LLM = "beacon.llm.client.generate"
@@ -309,6 +312,77 @@ class TestGenerateEnrichmentQuestions:
         generate_enrichment_questions("Led project", work_context="Data Scientist at Acme Corp")
         call_args = mock_generate.call_args[0][0]
         assert "Acme Corp" in call_args
+
+
+class TestBuildPresentationsContext:
+    def test_empty_returns_no_presentations(self, db):
+        result = build_presentations_context(db)
+        assert "No presentations" in result
+
+    def test_includes_presentation_title(self, db):
+        _populate_profile(db)
+        add_presentation(db, "AI Talk", event_name="DRIVE 2025", date="2025-09-15", status="accepted")
+        result = build_presentations_context(db)
+        assert "AI Talk" in result
+        assert "DRIVE 2025" in result
+
+    def test_includes_multiple(self, db):
+        add_presentation(db, "Talk 1", status="planned")
+        add_presentation(db, "Talk 2", status="delivered")
+        result = build_presentations_context(db)
+        assert "Talk 1" in result
+        assert "Talk 2" in result
+
+
+class TestBuildFullProfileContextWithPresentations:
+    def test_includes_presentations_section(self, db):
+        _populate_profile(db)
+        add_presentation(db, "AI Talk", event_name="DRIVE 2025", date="2025-09-15", status="accepted")
+        context = build_full_profile_context(db)
+        assert "Presentations:" in context
+        assert "AI Talk" in context
+
+
+class TestGenerateSpeakerBioShort:
+    @patch(MOCK_LLM)
+    def test_generates_short_bio(self, mock_generate, db):
+        _populate_profile(db)
+        mock_generate.return_value = LLMResponse(
+            text="Jane Doe is a data scientist.",
+            model="test", input_tokens=100, output_tokens=30,
+        )
+        result = generate_speaker_bio_short(db)
+        assert "Jane Doe" in result
+        mock_generate.assert_called_once()
+
+    @patch(MOCK_LLM)
+    def test_uses_short_bio_system_prompt(self, mock_generate, db):
+        _populate_profile(db)
+        mock_generate.return_value = LLMResponse(text="bio", model="test", input_tokens=100, output_tokens=30)
+        generate_speaker_bio_short(db)
+        call_kwargs = mock_generate.call_args[1]
+        assert "concise" in call_kwargs["system"]
+
+
+class TestGenerateSpeakerBioLong:
+    @patch(MOCK_LLM)
+    def test_generates_long_bio(self, mock_generate, db):
+        _populate_profile(db)
+        mock_generate.return_value = LLMResponse(
+            text="Jane Doe is a data scientist with extensive experience in AI and data engineering.",
+            model="test", input_tokens=100, output_tokens=80,
+        )
+        result = generate_speaker_bio_long(db)
+        assert "extensive experience" in result
+        mock_generate.assert_called_once()
+
+    @patch(MOCK_LLM)
+    def test_uses_long_bio_system_prompt(self, mock_generate, db):
+        _populate_profile(db)
+        mock_generate.return_value = LLMResponse(text="bio", model="test", input_tokens=100, output_tokens=80)
+        generate_speaker_bio_long(db)
+        call_kwargs = mock_generate.call_args[1]
+        assert "compelling" in call_kwargs["system"]
 
 
 class TestGenerateContentAngles:

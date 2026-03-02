@@ -292,6 +292,39 @@ CREATE TABLE IF NOT EXISTS automation_log (
     duration_seconds REAL
 );
 
+-- Presentations (talks, workshops, panels)
+CREATE TABLE IF NOT EXISTS presentations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    abstract TEXT,
+    key_points TEXT,         -- JSON array of key points
+    event_name TEXT,
+    venue TEXT,
+    event_url TEXT,
+    date TEXT,               -- YYYY-MM-DD
+    duration_minutes INTEGER,
+    audience TEXT,
+    status TEXT DEFAULT 'planned' CHECK(status IN ('planned', 'accepted', 'delivered', 'cancelled')),
+    slides_url TEXT,
+    recording_url TEXT,
+    co_presenters TEXT,      -- JSON array of co-presenter names
+    tags TEXT,               -- JSON array of tags
+    notes TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Speaker profile (single-row table)
+CREATE TABLE IF NOT EXISTS speaker_profile (
+    id INTEGER PRIMARY KEY CHECK(id = 1),
+    headshot_path TEXT,
+    short_bio TEXT,
+    long_bio TEXT,
+    bio_generated_at TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_companies_score ON companies(ai_first_score DESC);
 CREATE INDEX IF NOT EXISTS idx_companies_tier ON companies(tier);
@@ -316,3 +349,5 @@ CREATE INDEX IF NOT EXISTS idx_resume_variants_application ON resume_variants(ap
 CREATE INDEX IF NOT EXISTS idx_signal_refresh_company ON signal_refresh_log(company_id);
 CREATE INDEX IF NOT EXISTS idx_automation_log_type ON automation_log(run_type);
 CREATE INDEX IF NOT EXISTS idx_automation_log_started ON automation_log(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_presentations_status ON presentations(status);
+CREATE INDEX IF NOT EXISTS idx_presentations_date ON presentations(date);

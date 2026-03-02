@@ -12,11 +12,13 @@ from beacon.db.profile import (
     add_skill,
     add_work_experience,
 )
+from beacon.db.speaker import add_presentation, set_bio, set_headshot
 from beacon.presence.site import (
     export_site_content,
     generate_about_page,
     generate_project_page,
     generate_resume_page,
+    generate_talks_page,
 )
 
 
@@ -166,12 +168,69 @@ class TestGenerateAboutPage:
         assert "Python" in result
 
 
+class TestGenerateTalksPage:
+    def test_has_frontmatter(self, db):
+        result = generate_talks_page(db)
+        assert result.startswith("---")
+        assert 'title: "Talks"' in result
+
+    def test_empty_talks(self, db):
+        result = generate_talks_page(db)
+        assert "No talks recorded" in result
+
+    def test_upcoming_section(self, db):
+        add_presentation(db, "Future Talk", event_name="Conf", date="2099-01-01", status="accepted")
+        result = generate_talks_page(db)
+        assert "## Upcoming" in result
+        assert "Future Talk" in result
+
+    def test_past_section(self, db):
+        add_presentation(db, "Past Talk", event_name="OldConf", date="2020-01-01", status="delivered",
+                          slides_url="https://slides.example.com", recording_url="https://video.example.com")
+        result = generate_talks_page(db)
+        assert "## Past Talks" in result
+        assert "Past Talk" in result
+        assert "[Slides]" in result
+        assert "[Recording]" in result
+
+    def test_includes_abstract(self, db):
+        add_presentation(db, "Talk", abstract="My abstract here.", date="2099-01-01", status="planned")
+        result = generate_talks_page(db)
+        assert "My abstract here" in result
+
+    def test_includes_key_points(self, db):
+        add_presentation(db, "Talk", key_points=["KP1", "KP2"], date="2099-01-01", status="planned")
+        result = generate_talks_page(db)
+        assert "KP1" in result
+        assert "KP2" in result
+
+
+class TestGenerateAboutPageWithSpeaker:
+    def test_includes_headshot(self, db):
+        _populate_profile(db)
+        set_headshot(db, "/img/me.jpg")
+        result = generate_about_page(db)
+        assert "![Headshot]" in result
+        assert "/img/me.jpg" in result
+
+    def test_includes_bio(self, db):
+        _populate_profile(db)
+        set_bio(db, "Speaker bio text here.")
+        result = generate_about_page(db)
+        assert "Speaker bio text here" in result
+
+    def test_without_speaker_profile(self, db):
+        _populate_profile(db)
+        result = generate_about_page(db)
+        assert "![Headshot]" not in result
+
+
 class TestExportSiteContent:
     def test_creates_files(self, db, tmp_path):
         _populate_profile(db)
         output_dir = tmp_path / "site_content"
         files = export_site_content(db, str(output_dir))
-        assert len(files) >= 3  # resume, about, and at least 1 project
+        assert len(files) >= 4  # resume, about, talks, and at least 1 project
 
     def test_creates_resume(self, db, tmp_path):
         _populate_profile(db)

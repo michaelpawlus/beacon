@@ -26,6 +26,10 @@ from beacon.presence.templates import (
     LINKEDIN_HEADLINE_SYSTEM,
     LINKEDIN_POST_PROMPT,
     LINKEDIN_POST_SYSTEM,
+    SPEAKER_BIO_LONG_PROMPT,
+    SPEAKER_BIO_LONG_SYSTEM,
+    SPEAKER_BIO_SHORT_PROMPT,
+    SPEAKER_BIO_SHORT_SYSTEM,
 )
 
 
@@ -34,6 +38,8 @@ def build_full_profile_context(conn: sqlite3.Connection) -> str:
 
     Extends build_profile_summary with additional detail for richer content.
     """
+    import json
+
     from beacon.db.profile import (
         get_education,
         get_projects,
@@ -41,7 +47,6 @@ def build_full_profile_context(conn: sqlite3.Connection) -> str:
         get_skills,
         get_work_experiences,
     )
-    import json
 
     parts = []
 
@@ -100,6 +105,15 @@ def build_full_profile_context(conn: sqlite3.Connection) -> str:
         for p in pubs:
             venue = f" at {p['venue']}" if p["venue"] else ""
             parts.append(f"- {p['title']}{venue} ({p['pub_type']})")
+
+    from beacon.db.speaker import get_presentations
+    presentations = get_presentations(conn)
+    if presentations:
+        parts.append("\nPresentations:")
+        for pres in presentations:
+            event = f" at {pres['event_name']}" if pres["event_name"] else ""
+            date_str = f" ({pres['date']})" if pres["date"] else ""
+            parts.append(f"- {pres['title']}{event}{date_str} [{pres['status']}]")
 
     return "\n".join(parts)
 
@@ -181,6 +195,50 @@ def generate_enrichment_questions(statement: str, work_context: str = "") -> str
 
     prompt = ENRICHMENT_QUESTIONS_PROMPT.format(statement=statement, work_context=work_context)
     response = generate(prompt, system=ENRICHMENT_SYSTEM, temperature=0.6)
+    return response.text
+
+
+def build_presentations_context(conn: sqlite3.Connection) -> str:
+    """Build a presentations context string for bio generation."""
+    from beacon.db.speaker import get_presentations
+
+    presentations = get_presentations(conn)
+    if not presentations:
+        return "No presentations recorded."
+
+    lines = []
+    for p in presentations:
+        event = f" at {p['event_name']}" if p["event_name"] else ""
+        date_str = f" ({p['date']})" if p["date"] else ""
+        lines.append(f"- {p['title']}{event}{date_str} [{p['status']}]")
+    return "\n".join(lines)
+
+
+def generate_speaker_bio_short(conn: sqlite3.Connection) -> str:
+    """Generate a short speaker bio (2-3 sentences, <300 chars)."""
+    from beacon.llm.client import generate
+
+    profile_context = build_full_profile_context(conn)
+    presentations_context = build_presentations_context(conn)
+    prompt = SPEAKER_BIO_SHORT_PROMPT.format(
+        profile_context=profile_context,
+        presentations_context=presentations_context,
+    )
+    response = generate(prompt, system=SPEAKER_BIO_SHORT_SYSTEM, temperature=0.7)
+    return response.text
+
+
+def generate_speaker_bio_long(conn: sqlite3.Connection) -> str:
+    """Generate a long speaker bio (one paragraph, 100-150 words)."""
+    from beacon.llm.client import generate
+
+    profile_context = build_full_profile_context(conn)
+    presentations_context = build_presentations_context(conn)
+    prompt = SPEAKER_BIO_LONG_PROMPT.format(
+        profile_context=profile_context,
+        presentations_context=presentations_context,
+    )
+    response = generate(prompt, system=SPEAKER_BIO_LONG_SYSTEM, temperature=0.7)
     return response.text
 
 

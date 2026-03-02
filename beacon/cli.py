@@ -900,6 +900,160 @@ def profile_publications():
             print(f"  [{p['id']}] [{p['pub_type']}] {p['title']}{venue}")
 
 
+@profile_app.command("add-presentation")
+def profile_add_presentation(
+    title: str = typer.Option(..., "--title", "-t", help="Presentation title"),
+    abstract: str = typer.Option(None, "--abstract", "-a", help="Presentation abstract"),
+    event_name: str = typer.Option(None, "--event", "-e", help="Event name"),
+    date: str = typer.Option(None, "--date", "-d", help="Date (YYYY-MM-DD)"),
+    audience: str = typer.Option(None, "--audience", help="Target audience"),
+    venue: str = typer.Option(None, "--venue", help="Venue name"),
+    event_url: str = typer.Option(None, "--url", help="Event URL"),
+    duration: int = typer.Option(None, "--duration", help="Duration in minutes"),
+    status: str = typer.Option("planned", "--status", "-s", help="Status: planned, accepted, delivered, cancelled"),
+    key_points: str = typer.Option(None, "--key-points", help="Key points (comma-separated)"),
+    tags: str = typer.Option(None, "--tags", help="Tags (comma-separated)"),
+    notes: str = typer.Option(None, "--notes", "-n", help="Notes"),
+):
+    """Add a presentation to your profile."""
+    from beacon.db.speaker import add_presentation
+
+    conn = get_connection()
+    kp = [k.strip() for k in key_points.split(",")] if key_points else None
+    tag_list = [t.strip() for t in tags.split(",")] if tags else None
+    pres_id = add_presentation(
+        conn, title, abstract=abstract, key_points=kp, event_name=event_name,
+        venue=venue, event_url=event_url, date=date, duration_minutes=duration,
+        audience=audience, status=status, tags=tag_list, notes=notes,
+    )
+    conn.close()
+    _print(f"[green]✓[/green] Presentation #{pres_id} added" if HAS_RICH else f"✓ Presentation #{pres_id} added")
+
+
+@profile_app.command("presentations")
+def profile_presentations(
+    detail: int = typer.Option(None, "--detail", help="Presentation ID for detail view"),
+    status: str = typer.Option(None, "--status", "-s", help="Filter by status"),
+):
+    """List presentations or show detail."""
+    from beacon.db.speaker import get_presentation_by_id, get_presentations
+
+    conn = get_connection()
+
+    if detail is not None:
+        pres = get_presentation_by_id(conn, detail)
+        conn.close()
+        if not pres:
+            _print(f"No presentation found with ID {detail}")
+            return
+
+        if HAS_RICH:
+            console.print(Panel(f"[bold]{pres['title']}[/bold]", style="blue"))
+        else:
+            print(f"\n{pres['title']}")
+        _print(f"  Event: {pres['event_name'] or 'N/A'}")
+        _print(f"  Venue: {pres['venue'] or 'N/A'}")
+        _print(f"  Date: {pres['date'] or 'N/A'}")
+        _print(f"  Duration: {pres['duration_minutes'] or 'N/A'} minutes")
+        _print(f"  Audience: {pres['audience'] or 'N/A'}")
+        _print(f"  Status: {pres['status']}")
+        if pres["abstract"]:
+            _print("\n[bold]Abstract:[/bold]" if HAS_RICH else "\nAbstract:")
+            _print(f"  {pres['abstract']}")
+        if pres["key_points"]:
+            _print("\n[bold]Key Points:[/bold]" if HAS_RICH else "\nKey Points:")
+            for kp in json.loads(pres["key_points"]):
+                _print(f"  • {kp}")
+        if pres["slides_url"]:
+            _print(f"  Slides: {pres['slides_url']}")
+        if pres["recording_url"]:
+            _print(f"  Recording: {pres['recording_url']}")
+        if pres["co_presenters"]:
+            co = json.loads(pres["co_presenters"])
+            _print(f"  Co-presenters: {', '.join(co)}")
+        if pres["tags"]:
+            tag_list = json.loads(pres["tags"])
+            _print(f"  Tags: {', '.join(tag_list)}")
+        if pres["notes"]:
+            _print(f"\n  Notes: {pres['notes']}")
+    else:
+        presentations = get_presentations(conn, status=status)
+        conn.close()
+        if not presentations:
+            _print("No presentations recorded.")
+            return
+
+        if HAS_RICH:
+            table = Table(title="Presentations")
+            table.add_column("ID", style="dim", width=4)
+            table.add_column("Title", style="bold")
+            table.add_column("Event")
+            table.add_column("Date")
+            table.add_column("Status")
+            for p in presentations:
+                table.add_row(
+                    str(p["id"]),
+                    p["title"],
+                    p["event_name"] or "",
+                    p["date"] or "",
+                    p["status"],
+                )
+            console.print(table)
+        else:
+            for p in presentations:
+                event = f" at {p['event_name']}" if p["event_name"] else ""
+                print(f"  [{p['id']}] {p['title']}{event} ({p['status']})")
+
+
+@profile_app.command("speaker")
+def profile_speaker():
+    """Show current speaker profile (headshot path and bios)."""
+    from beacon.db.speaker import get_speaker_profile
+
+    conn = get_connection()
+    profile = get_speaker_profile(conn)
+    conn.close()
+
+    if not profile:
+        _print("No speaker profile set. Use 'profile set-headshot' or 'presence bio --save' to create one.")
+        return
+
+    if HAS_RICH:
+        console.print(Panel("[bold]Speaker Profile[/bold]", style="blue"))
+    else:
+        print("\nSpeaker Profile")
+
+    _print(f"  Headshot: {profile['headshot_path'] or '(not set)'}")
+    if profile["short_bio"]:
+        _print("\n[bold]Short Bio:[/bold]" if HAS_RICH else "\nShort Bio:")
+        _print(f"  {profile['short_bio']}")
+    else:
+        _print("  Short Bio: (not set)")
+    if profile["long_bio"]:
+        _print("\n[bold]Long Bio:[/bold]" if HAS_RICH else "\nLong Bio:")
+        _print(f"  {profile['long_bio']}")
+    if profile["bio_generated_at"]:
+        _print(f"\n  Bio generated: {profile['bio_generated_at']}")
+
+
+@profile_app.command("set-headshot")
+def profile_set_headshot(
+    path: str = typer.Argument(help="Path to headshot image file"),
+):
+    """Set the headshot image path in your speaker profile."""
+    from beacon.db.speaker import set_headshot
+
+    resolved = Path(path).resolve()
+    if not resolved.exists():
+        _print(f"[red]Error:[/red] File not found: {resolved}" if HAS_RICH else f"Error: File not found: {resolved}")
+        raise typer.Exit(1)
+
+    conn = get_connection()
+    set_headshot(conn, str(resolved))
+    conn.close()
+    _print(f"[green]✓[/green] Headshot set to {resolved}" if HAS_RICH else f"✓ Headshot set to {resolved}")
+
+
 @profile_app.command("stats")
 def profile_stats():
     """Show profile completeness dashboard."""
@@ -1512,6 +1666,44 @@ def presence_calendar_seed():
 
     conn.close()
     _print(f"[green]✓[/green] Created {count} calendar entries" if HAS_RICH else f"✓ Created {count} calendar entries")
+
+
+@presence_app.command("bio")
+def presence_bio(
+    length: str = typer.Option("short", "--length", "-l", help="Bio length: short or long"),
+    save: bool = typer.Option(False, "--save", help="Save the bio to speaker profile"),
+    output: str = typer.Option(None, "--output", "-o", help="Output file path"),
+):
+    """Generate a speaker bio via LLM."""
+    from beacon.presence.generator import generate_speaker_bio_long, generate_speaker_bio_short
+
+    conn = get_connection()
+    _print("Generating speaker bio..." if not HAS_RICH else "[bold]Generating speaker bio...[/bold]")
+    try:
+        if length == "long":
+            content = generate_speaker_bio_long(conn)
+        else:
+            content = generate_speaker_bio_short(conn)
+    except RuntimeError as e:
+        _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+        conn.close()
+        raise typer.Exit(1)
+
+    if save:
+        from beacon.db.speaker import set_bio
+        if length == "long":
+            set_bio(conn, short_bio=content, long_bio=content)
+        else:
+            set_bio(conn, short_bio=content)
+        _print(f"[green]✓[/green] Bio saved to speaker profile" if HAS_RICH else "✓ Bio saved to speaker profile")
+
+    conn.close()
+
+    if output:
+        Path(output).write_text(content)
+        _print(f"[green]✓[/green] Bio written to {output}" if HAS_RICH else f"✓ Bio written to {output}")
+    else:
+        print(content)
 
 
 @presence_app.command("site-generate")

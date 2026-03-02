@@ -164,6 +164,44 @@ Generate 5-7 follow-up questions that cover:
 
 Format as a numbered list of questions. Be specific to the accomplishment described."""
 
+# --- Speaker Bio ---
+
+SPEAKER_BIO_SHORT_SYSTEM = """You are a professional bio writer who crafts concise, compelling speaker bios.
+Write in third person. Be direct and impactful. Focus on current expertise and relevance."""
+
+SPEAKER_BIO_SHORT_PROMPT = """Write a short speaker bio (2-3 sentences, under 300 characters).
+
+Profile:
+{profile_context}
+
+Presentations:
+{presentations_context}
+
+Requirements:
+- Third person
+- 2-3 sentences, under 300 characters total
+- Focus on current role, key expertise, and one notable accomplishment
+- No fluff or generic phrases
+- Return ONLY the bio text, no labels or formatting"""
+
+SPEAKER_BIO_LONG_SYSTEM = """You are a professional bio writer who crafts compelling speaker bios.
+Write in third person. Balance professional credentials with personality. Focus on expertise and impact."""
+
+SPEAKER_BIO_LONG_PROMPT = """Write a speaker bio (one paragraph, 100-150 words).
+
+Profile:
+{profile_context}
+
+Presentations:
+{presentations_context}
+
+Requirements:
+- Third person, one paragraph, 100-150 words
+- Cover: current role, key expertise areas, notable accomplishments, speaking topics
+- Include relevant technical depth without jargon overload
+- End with something personal or forward-looking
+- Return ONLY the bio text, no labels or formatting"""
+
 ENRICHMENT_CONTENT_ANGLES_PROMPT = """Given this enriched accomplishment, suggest content angles.
 
 Accomplishment:
