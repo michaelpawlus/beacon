@@ -188,7 +188,7 @@ SEED_COMPANIES = [
         "industry": "Fintech",
         "founded_year": 2009,
         "tier": 2,
-        "description": "Financial services (Square, Cash App). Jack Dorsey pushing AI-first engineering.",
+        "description": "Dorsey cut workforce ~40% (10K to 6K) in Feb 2026 explicitly citing AI productivity. Expects each remaining employee to produce 2.6x output. Stock rose 18%.",
     },
     {
         "name": "Mercado Libre",
@@ -228,8 +228,8 @@ SEED_COMPANIES = [
         "size_bucket": "enterprise-5000+",
         "industry": "Fintech / Payments",
         "founded_year": 2010,
-        "tier": 3,
-        "description": "Payment infrastructure. Strong engineering culture with AI tool adoption.",
+        "tier": 2,
+        "description": "Built Minions — unattended AI coding agents merging 1,000+ PRs/week. Published influential multi-part agentic engineering blog series.",
     },
     {
         "name": "Netflix",
@@ -254,8 +254,8 @@ SEED_COMPANIES = [
         "size_bucket": "enterprise-5000+",
         "industry": "Entertainment / Music",
         "founded_year": 2006,
-        "tier": 3,
-        "description": "Music streaming. AI-first recommendations, personalization, and content features.",
+        "tier": 2,
+        "description": "Best devs haven't written code since Dec 2025. Built Honk (Claude Code agent) — 650+ AI code changes/month, 90% reduction in migration time.",
     },
     {
         "name": "Notion",
@@ -506,6 +506,85 @@ SEED_COMPANIES = [
         "tier": 4,
         "description": "Collaborative data platform with AI-powered analysis. Magic AI features.",
     },
+    # === NEW: AI-Culture Validated Companies ===
+    {
+        "name": "Cognition AI",
+        "domain": "cognition.ai",
+        "careers_url": "https://www.cognition.ai/careers",
+        "careers_platform": "custom",
+        "hq_location": "San Francisco, CA",
+        "remote_policy": "hybrid",
+        "size_bucket": "startup-<50",
+        "industry": "AI Developer Tools",
+        "founded_year": 2023,
+        "tier": 1,
+        "description": "Makers of Devin, the autonomous AI software engineer agent. AI-native by definition.",
+    },
+    {
+        "name": "Novo Nordisk",
+        "domain": "novonordisk.com",
+        "careers_url": "https://www.novonordisk.com/careers.html",
+        "careers_platform": "workday",
+        "hq_location": "Bagsvaerd, Denmark",
+        "remote_policy": "hybrid",
+        "size_bucket": "enterprise-5000+",
+        "industry": "Pharmaceuticals",
+        "founded_year": 1923,
+        "tier": 2,
+        "description": "Built NovoScribe on Claude — cut clinical documentation from 10 weeks to 10 minutes. 3 people do what 50 did previously.",
+    },
+    {
+        "name": "NYSE (Intercontinental Exchange)",
+        "domain": "nyse.com",
+        "careers_url": "https://www.ice.com/careers",
+        "careers_platform": "workday",
+        "hq_location": "New York, NY",
+        "remote_policy": "hybrid",
+        "size_bucket": "enterprise-5000+",
+        "industry": "Financial Infrastructure",
+        "founded_year": 1792,
+        "tier": 2,
+        "description": "CTO rewiring engineering with Claude Code. Building Jira-to-committed-code AI agents using Claude Agent SDK.",
+    },
+    {
+        "name": "Salesforce",
+        "domain": "salesforce.com",
+        "careers_url": "https://www.salesforce.com/company/careers/",
+        "careers_platform": "custom",
+        "hq_location": "San Francisco, CA",
+        "remote_policy": "hybrid",
+        "size_bucket": "enterprise-5000+",
+        "industry": "Enterprise SaaS",
+        "founded_year": 1999,
+        "tier": 3,
+        "description": "CEO announced zero new engineer hires in 2025 citing 30% AI productivity boost from Agentforce. Growing sales team 20% to sell AI services.",
+    },
+    {
+        "name": "Accenture",
+        "domain": "accenture.com",
+        "careers_url": "https://www.accenture.com/us-en/careers",
+        "careers_platform": "custom",
+        "hq_location": "Dublin, Ireland",
+        "remote_policy": "hybrid",
+        "size_bucket": "enterprise-5000+",
+        "industry": "Consulting & Technology Services",
+        "founded_year": 1989,
+        "tier": 3,
+        "description": "Formed Anthropic Business Group, training 30,000 professionals on Claude Code — largest Anthropic enterprise deployment.",
+    },
+    {
+        "name": "Schrodinger",
+        "domain": "schrodinger.com",
+        "careers_url": "https://www.schrodinger.com/careers",
+        "careers_platform": "greenhouse",
+        "hq_location": "New York, NY",
+        "remote_policy": "hybrid",
+        "size_bucket": "mid-200-1000",
+        "industry": "Computational Drug Discovery",
+        "founded_year": 1990,
+        "tier": 2,
+        "description": "Uses Claude Code for drug discovery. Reports 10x faster project delivery, AI suggesting test scenarios developers overlooked.",
+    },
 ]
 
 
@@ -596,16 +675,26 @@ SEED_LEADERSHIP_SIGNALS = [
         "date_observed": "2025-01-08",
         "impact_level": "company-wide",
     },
-    # Block
+    # Block (2 signals)
     {
         "company_name": "Block (Square)",
         "leader_name": "Jack Dorsey",
         "leader_title": "Chairman",
         "signal_type": "policy",
-        "content": "Block has been integrating AI tools across its engineering organization, with a focus on developer productivity and AI-assisted code generation.",
-        "source_url": "https://block.xyz/inside",
-        "date_observed": "2024-10-15",
-        "impact_level": "engineering",
+        "content": "A significantly smaller team, using the tools we're building, can do more and do it better. The majority of companies will reach the same conclusion and make similar structural changes within a year.",
+        "source_url": "https://fortune.com/2026/02/27/block-jack-dorsey-ceo-xyz-stock-square-4000-ai-layoffs/",
+        "date_observed": "2026-02-27",
+        "impact_level": "company-wide",
+    },
+    {
+        "company_name": "Block (Square)",
+        "leader_name": "Jack Dorsey",
+        "leader_title": "Chairman",
+        "signal_type": "interview",
+        "content": "Block cut workforce ~40% from 10,000 to 6,000 explicitly citing AI productivity gains. 2026 guidance implies each remaining employee will produce 2.6x what they did in 2025.",
+        "source_url": "https://www.cnbc.com/2026/02/27/jack-dorsey-made-the-loudest-case-yet-ai-is-already-replacing-jobs.html",
+        "date_observed": "2026-02-27",
+        "impact_level": "company-wide",
     },
     # Vercel
     {
@@ -705,6 +794,83 @@ SEED_LEADERSHIP_SIGNALS = [
         "source_url": "https://www.figma.com/blog/introducing-ai-to-figjam/",
         "date_observed": "2024-06-26",
         "impact_level": "company-wide",
+    },
+    # Spotify
+    {
+        "company_name": "Spotify",
+        "leader_name": "Gustav Soderström",
+        "leader_title": "Co-CEO",
+        "signal_type": "interview",
+        "content": "Our best developers have not written a single line of code since December. A developer tells Claude to fix a bug during their commute, and it's ready to push live when they arrive.",
+        "source_url": "https://techcrunch.com/2026/02/12/spotify-says-its-best-developers-havent-written-a-line-of-code-since-december-thanks-to-ai/",
+        "date_observed": "2026-02-12",
+        "impact_level": "company-wide",
+    },
+    # Stripe
+    {
+        "company_name": "Stripe",
+        "leader_name": "Stripe Engineering",
+        "leader_title": "Engineering Leadership",
+        "signal_type": "engineering_blog",
+        "content": "Minions are fully unattended one-shot coding agents merging 1,000+ PRs per week. Humans review but do not write code. Uses blueprints alternating deterministic and agentic nodes.",
+        "source_url": "https://stripe.dev/blog/minions-stripes-one-shot-end-to-end-coding-agents",
+        "date_observed": "2026-01-15",
+        "impact_level": "engineering",
+    },
+    # Salesforce
+    {
+        "company_name": "Salesforce",
+        "leader_name": "Marc Benioff",
+        "leader_title": "CEO",
+        "signal_type": "interview",
+        "content": "My message to CEOs right now is that we are the last generation to manage only humans. Salesforce will hire zero new software engineers in 2025 thanks to a 30% productivity boost from Agentforce.",
+        "source_url": "https://www.salesforceben.com/salesforce-will-hire-no-more-software-engineers-in-2025-says-marc-benioff/",
+        "date_observed": "2025-09-01",
+        "impact_level": "company-wide",
+    },
+    # Novo Nordisk
+    {
+        "company_name": "Novo Nordisk",
+        "leader_name": "Novo Nordisk Digitalization Team",
+        "leader_title": "Digitalization Director",
+        "signal_type": "interview",
+        "content": "NovoScribe cut clinical documentation from 10+ weeks to 10 minutes. Where 50 writers assembled a report, 3 now do the job. A team of 11 produces at a scale that previously required many times that headcount.",
+        "source_url": "https://claude.com/customers/novo-nordisk",
+        "date_observed": "2025-10-01",
+        "impact_level": "company-wide",
+    },
+    # NYSE
+    {
+        "company_name": "NYSE (Intercontinental Exchange)",
+        "leader_name": "NYSE CTO",
+        "leader_title": "CTO",
+        "signal_type": "interview",
+        "content": "We are rewiring our engineering process with Claude Code. Building internal AI agents using Claude Agent SDK that take instructions from a Jira ticket all the way to committed code.",
+        "source_url": "https://www.americanbanker.com/news/how-the-new-york-stock-exchange-deploys-anthropics-claude",
+        "date_observed": "2025-11-01",
+        "impact_level": "engineering",
+    },
+    # Accenture
+    {
+        "company_name": "Accenture",
+        "leader_name": "Julie Sweet",
+        "leader_title": "CEO",
+        "signal_type": "policy",
+        "content": "This partnership will help our clients accelerate the shift from experimenting with AI to using it as a catalyst for reinvention. Training 30,000 professionals on Claude Code.",
+        "source_url": "https://newsroom.accenture.com/news/2025/accenture-and-anthropic-launch-multi-year-partnership-to-drive-enterprise-ai-innovation-and-value-across-industries",
+        "date_observed": "2025-12-01",
+        "impact_level": "company-wide",
+    },
+    # Schrodinger
+    {
+        "company_name": "Schrodinger",
+        "leader_name": "Schrodinger Engineering",
+        "leader_title": "Engineering Leadership",
+        "signal_type": "interview",
+        "content": "Claude Code turns ideas into working code in minutes instead of hours. Projects move up to 10x faster. Claude suggested testing scenarios developers overlooked, improving code quality.",
+        "source_url": "https://www.anthropic.com/news/claude-for-life-sciences",
+        "date_observed": "2025-08-01",
+        "impact_level": "engineering",
     },
 ]
 
@@ -1108,12 +1274,22 @@ SEED_AI_SIGNALS = [
     {
         "company_name": "Stripe",
         "signal_type": "engineering_blog",
-        "title": "Stripe engineering uses AI for code review and docs",
-        "source_url": "https://stripe.com/blog/engineering",
-        "source_name": "Stripe Blog",
-        "excerpt": "Stripe integrated AI tools into engineering workflows including code review and fraud detection.",
-        "signal_strength": 3,
-        "date_observed": "2024-08-01",
+        "title": "Minions — Stripe's one-shot end-to-end coding agents (multi-part series)",
+        "source_url": "https://stripe.dev/blog/minions-stripes-one-shot-end-to-end-coding-agents",
+        "source_name": "Stripe Dev Blog",
+        "excerpt": "Minions are fully unattended AI agents responsible for 1,000+ merged PRs/week. Uses 'blueprints' alternating deterministic code and open-ended agent loops.",
+        "signal_strength": 5,
+        "date_observed": "2026-01-15",
+    },
+    {
+        "company_name": "Stripe",
+        "signal_type": "tool_mandate",
+        "title": "AI agents write code end-to-end — humans review only",
+        "source_url": "https://stripe.dev/blog/minions-stripes-one-shot-end-to-end-coding-agents-part-2",
+        "source_name": "Stripe Dev Blog",
+        "excerpt": "Stripe's architecture curates ~15 relevant tools per task. Agents write code from start to finish, humans review but do not write.",
+        "signal_strength": 5,
+        "date_observed": "2026-01-15",
     },
     {
         "company_name": "Stripe",
@@ -1197,6 +1373,26 @@ SEED_AI_SIGNALS = [
     },
 
     # === Spotify ===
+    {
+        "company_name": "Spotify",
+        "signal_type": "tool_mandate",
+        "title": "Best developers haven't written code since December — Claude Code agents",
+        "source_url": "https://techcrunch.com/2026/02/12/spotify-says-its-best-developers-havent-written-a-line-of-code-since-december-thanks-to-ai/",
+        "source_name": "TechCrunch",
+        "excerpt": "Co-CEO Gustav Soderström said best devs haven't written a line of code since December. Built Honk, a background coding agent powered by Claude Code triggered from Slack/GitHub.",
+        "signal_strength": 5,
+        "date_observed": "2026-02-12",
+    },
+    {
+        "company_name": "Spotify",
+        "signal_type": "engineering_blog",
+        "title": "Honk — internal Claude Code agent shipping 650+ code changes/month",
+        "source_url": "https://www.fastcompany.com/91493217/spotify-ai-coding-new-features-claude",
+        "source_name": "Fast Company",
+        "excerpt": "Spotify ships 650+ AI-generated code changes/month via Honk agent. 90% reduction in engineering time for code migrations.",
+        "signal_strength": 5,
+        "date_observed": "2026-02-12",
+    },
     {
         "company_name": "Spotify",
         "signal_type": "product_integration",
@@ -1291,6 +1487,98 @@ SEED_AI_SIGNALS = [
         "signal_strength": 4,
         "date_observed": "2024-10-01",
     },
+
+    # === Cognition AI ===
+    {
+        "company_name": "Cognition AI",
+        "signal_type": "product_integration",
+        "title": "Devin — autonomous AI software engineer agent",
+        "source_url": "https://www.cognition.ai",
+        "source_name": "Cognition AI",
+        "excerpt": "Devin is positioned as the first autonomous AI software engineer, capable of planning, writing, debugging, and deploying code end-to-end.",
+        "signal_strength": 5,
+        "date_observed": "2025-03-01",
+    },
+    {
+        "company_name": "Cognition AI",
+        "signal_type": "press_coverage",
+        "title": "Devin part of the agentic coding wave reshaping engineering expectations",
+        "source_url": "https://thenewstack.io/5-key-trends-shaping-agentic-development-in-2026/",
+        "source_name": "The New Stack",
+        "excerpt": "Devin alongside Claude Code and Cursor is reshaping what companies expect from their engineering teams.",
+        "signal_strength": 5,
+        "date_observed": "2026-01-01",
+    },
+
+    # === Novo Nordisk ===
+    {
+        "company_name": "Novo Nordisk",
+        "signal_type": "tool_mandate",
+        "title": "NovoScribe — Claude-powered clinical documentation platform",
+        "source_url": "https://claude.com/customers/novo-nordisk",
+        "source_name": "Anthropic Customer Story",
+        "excerpt": "Cut clinical documentation from 10+ weeks to 10 minutes. 3 people do work of 50. Digitalization director prototypes features using natural language.",
+        "signal_strength": 5,
+        "date_observed": "2025-10-01",
+    },
+
+    # === NYSE ===
+    {
+        "company_name": "NYSE (Intercontinental Exchange)",
+        "signal_type": "tool_mandate",
+        "title": "Rewiring engineering with Claude Code and Agent SDK",
+        "source_url": "https://www.americanbanker.com/news/how-the-new-york-stock-exchange-deploys-anthropics-claude",
+        "source_name": "American Banker",
+        "excerpt": "CTO described rewiring engineering process with Claude Code. Building Jira-to-committed-code AI agents. Also using AI agents to review proxy filings and audit SEC filings.",
+        "signal_strength": 5,
+        "date_observed": "2025-11-01",
+    },
+
+    # === Salesforce ===
+    {
+        "company_name": "Salesforce",
+        "signal_type": "company_policy",
+        "title": "Zero new engineer hires in 2025 — Agentforce productivity",
+        "source_url": "https://www.salesforceben.com/salesforce-will-hire-no-more-software-engineers-in-2025-says-marc-benioff/",
+        "source_name": "Salesforce Ben",
+        "excerpt": "Benioff announced zero new software engineer hires in 2025 citing 30% productivity boost from Agentforce. Growing sales team 20% to sell AI services.",
+        "signal_strength": 5,
+        "date_observed": "2025-09-01",
+    },
+    {
+        "company_name": "Salesforce",
+        "signal_type": "product_integration",
+        "title": "Agentforce — AI agents for enterprise workflows",
+        "source_url": "https://www.salesforce.com/agentforce/",
+        "source_name": "Salesforce",
+        "excerpt": "Agentforce enables autonomous AI agents for sales, service, and operations workflows.",
+        "signal_strength": 4,
+        "date_observed": "2025-06-01",
+    },
+
+    # === Accenture ===
+    {
+        "company_name": "Accenture",
+        "signal_type": "company_policy",
+        "title": "Anthropic Business Group — 30,000 trained on Claude Code",
+        "source_url": "https://newsroom.accenture.com/news/2025/accenture-and-anthropic-launch-multi-year-partnership-to-drive-enterprise-ai-innovation-and-value-across-industries",
+        "source_name": "Accenture Newsroom",
+        "excerpt": "Formed Accenture Anthropic Business Group. Training 30,000 professionals on Claude Code — described as Anthropic's largest-ever deployment.",
+        "signal_strength": 5,
+        "date_observed": "2025-12-01",
+    },
+
+    # === Schrodinger ===
+    {
+        "company_name": "Schrodinger",
+        "signal_type": "tool_mandate",
+        "title": "Claude Code for computational drug discovery — 10x faster",
+        "source_url": "https://www.anthropic.com/news/claude-for-life-sciences",
+        "source_name": "Anthropic",
+        "excerpt": "Claude Code turns ideas into working code in minutes. Projects move 10x faster. AI suggests testing scenarios developers overlooked.",
+        "signal_strength": 5,
+        "date_observed": "2025-08-01",
+    },
 ]
 
 
@@ -1380,6 +1668,9 @@ SEED_TOOLS = [
     {"company_name": "Ramp", "tool_name": "GitHub Copilot", "adoption_level": "encouraged",
      "date_observed": "2024-07-01"},
     # Stripe
+    {"company_name": "Stripe", "tool_name": "Minions (Custom AI Agents)", "adoption_level": "required",
+     "evidence_url": "https://stripe.dev/blog/minions-stripes-one-shot-end-to-end-coding-agents",
+     "date_observed": "2026-01-15"},
     {"company_name": "Stripe", "tool_name": "GitHub Copilot", "adoption_level": "encouraged",
      "date_observed": "2024-08-01"},
     # Scale AI
@@ -1409,6 +1700,42 @@ SEED_TOOLS = [
     # Linear
     {"company_name": "Linear", "tool_name": "GitHub Copilot", "adoption_level": "encouraged",
      "date_observed": "2024-11-01"},
+    # Spotify
+    {"company_name": "Spotify", "tool_name": "Claude Code", "adoption_level": "required",
+     "evidence_url": "https://techcrunch.com/2026/02/12/spotify-says-its-best-developers-havent-written-a-line-of-code-since-december-thanks-to-ai/",
+     "date_observed": "2026-02-12"},
+    {"company_name": "Spotify", "tool_name": "Honk (Custom Claude Code Agent)", "adoption_level": "required",
+     "evidence_url": "https://www.fastcompany.com/91493217/spotify-ai-coding-new-features-claude",
+     "date_observed": "2026-02-12"},
+    # Cognition AI
+    {"company_name": "Cognition AI", "tool_name": "Devin", "adoption_level": "required",
+     "date_observed": "2025-03-01"},
+    # Novo Nordisk
+    {"company_name": "Novo Nordisk", "tool_name": "Claude", "adoption_level": "required",
+     "evidence_url": "https://claude.com/customers/novo-nordisk",
+     "date_observed": "2025-10-01"},
+    {"company_name": "Novo Nordisk", "tool_name": "NovoScribe (Custom Claude Platform)", "adoption_level": "required",
+     "evidence_url": "https://claude.com/customers/novo-nordisk",
+     "date_observed": "2025-10-01"},
+    # NYSE
+    {"company_name": "NYSE (Intercontinental Exchange)", "tool_name": "Claude Code", "adoption_level": "required",
+     "evidence_url": "https://www.americanbanker.com/news/how-the-new-york-stock-exchange-deploys-anthropics-claude",
+     "date_observed": "2025-11-01"},
+    {"company_name": "NYSE (Intercontinental Exchange)", "tool_name": "Claude Agent SDK", "adoption_level": "required",
+     "evidence_url": "https://www.americanbanker.com/news/how-the-new-york-stock-exchange-deploys-anthropics-claude",
+     "date_observed": "2025-11-01"},
+    # Salesforce
+    {"company_name": "Salesforce", "tool_name": "Agentforce", "adoption_level": "required",
+     "evidence_url": "https://www.salesforceben.com/salesforce-will-hire-no-more-software-engineers-in-2025-says-marc-benioff/",
+     "date_observed": "2025-09-01"},
+    # Accenture
+    {"company_name": "Accenture", "tool_name": "Claude Code", "adoption_level": "required",
+     "evidence_url": "https://newsroom.accenture.com/news/2025/accenture-and-anthropic-launch-multi-year-partnership-to-drive-enterprise-ai-innovation-and-value-across-industries",
+     "date_observed": "2025-12-01"},
+    # Schrodinger
+    {"company_name": "Schrodinger", "tool_name": "Claude Code", "adoption_level": "required",
+     "evidence_url": "https://www.anthropic.com/news/claude-for-life-sciences",
+     "date_observed": "2025-08-01"},
 ]
 
 
