@@ -325,7 +325,27 @@ CREATE TABLE IF NOT EXISTS speaker_profile (
     updated_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Claude Code session logs (for portfolio / application materials)
+CREATE TABLE IF NOT EXISTS sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    project TEXT NOT NULL DEFAULT 'beacon',
+    summary TEXT NOT NULL,
+    challenges TEXT,        -- JSON array
+    technologies TEXT,      -- JSON array
+    impact TEXT,
+    tags TEXT,              -- JSON array
+    transcript_path TEXT,
+    obsidian_path TEXT,
+    duration_estimate TEXT,
+    session_date TEXT DEFAULT (date('now')),
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Indexes
+CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project);
+CREATE INDEX IF NOT EXISTS idx_sessions_date ON sessions(session_date DESC);
 CREATE INDEX IF NOT EXISTS idx_companies_score ON companies(ai_first_score DESC);
 CREATE INDEX IF NOT EXISTS idx_companies_tier ON companies(tier);
 CREATE INDEX IF NOT EXISTS idx_signals_company ON ai_signals(company_id);

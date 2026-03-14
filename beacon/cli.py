@@ -40,6 +40,7 @@ application_app = typer.Typer(help="Application tracking")
 presence_app = typer.Typer(help="Professional presence & content generation")
 config_app = typer.Typer(help="Configuration management")
 automation_app = typer.Typer(help="Automation and scheduling")
+session_app = typer.Typer(help="Claude Code session logging")
 app.add_typer(job_app, name="job")
 app.add_typer(report_app, name="report")
 app.add_typer(profile_app, name="profile")
@@ -47,6 +48,7 @@ app.add_typer(application_app, name="application")
 app.add_typer(presence_app, name="presence")
 app.add_typer(config_app, name="config")
 app.add_typer(automation_app, name="automation")
+app.add_typer(session_app, name="session")
 console = Console() if HAS_RICH else None
 
 
@@ -2193,6 +2195,167 @@ Run 'beacon --help' for all commands.
         console.print(Panel(guide_text.strip(), title="Beacon Guide", style="blue"))
     else:
         print(guide_text)
+
+
+# ── Session logging commands ──────────────────────────────────────────
+
+
+@session_app.command("log")
+def session_log(
+    title: str = typer.Argument(..., help="Session title"),
+    summary: str = typer.Option(..., "--summary", "-s", help="What was accomplished"),
+    tag: list[str] = typer.Option([], "--tag", "-t", help="Tags (repeatable)"),
+    challenge: list[str] = typer.Option([], "--challenge", "-c", help="Challenges faced (repeatable)"),
+    tech: list[str] = typer.Option([], "--tech", help="Technologies used (repeatable)"),
+    impact: str = typer.Option(None, "--impact", "-i", help="Impact statement"),
+    duration: str = typer.Option(None, "--duration", "-d", help="Estimated duration"),
+    project: str = typer.Option("beacon", "--project", "-p", help="Project name"),
+    date: str = typer.Option(None, "--date", help="Session date (YYYY-MM-DD)"),
+    transcript: str = typer.Option(None, "--transcript", help="Path to transcript file"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Log a Claude Code session with Obsidian note and DB record."""
+    from beacon.session import (
+        generate_session_note,
+        save_session_to_db,
+        slugify,
+        write_session_note,
+    )
+
+    conn = get_connection()
+
+    note_content = generate_session_note(
+        title=title,
+        summary=summary,
+        project=project,
+        challenges=challenge or None,
+        technologies=tech or None,
+        impact=impact,
+        tags=tag or None,
+        session_date=date,
+        duration_estimate=duration,
+    )
+
+    obsidian_path = None
+    try:
+        slug = slugify(title)
+        from datetime import date as date_cls
+        session_date = date or date_cls.today().isoformat()
+        obsidian_path = write_session_note(note_content, session_date, slug)
+    except RuntimeError:
+        pass  # OBSIDIAN_VAULT_PATH not set — skip note, still save to DB
+
+    session_id = save_session_to_db(
+        conn,
+        title=title,
+        summary=summary,
+        project=project,
+        challenges=challenge or None,
+        technologies=tech or None,
+        impact=impact,
+        tags=tag or None,
+        transcript_path=transcript,
+        obsidian_path=obsidian_path,
+        duration_estimate=duration,
+        session_date=date,
+    )
+    conn.close()
+
+    result = {"id": session_id, "title": title, "obsidian_path": obsidian_path}
+    if as_json:
+        print(json.dumps(result))
+    else:
+        _print(f"Session logged (id={session_id}): {title}")
+        if obsidian_path:
+            _print(f"  Obsidian note: {obsidian_path}")
+
+
+@session_app.command("list")
+def session_list(
+    project: str = typer.Option(None, "--project", "-p", help="Filter by project"),
+    tag: str = typer.Option(None, "--tag", "-t", help="Filter by tag"),
+    limit: int = typer.Option(20, "--limit", "-n", help="Max results"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """List logged sessions."""
+    from beacon.session import list_sessions
+
+    conn = get_connection()
+    sessions = list_sessions(conn, project=project, tag=tag, limit=limit)
+    conn.close()
+
+    if as_json:
+        print(json.dumps(sessions))
+        return
+
+    if not sessions:
+        _print("No sessions found.")
+        return
+
+    if HAS_RICH:
+        table = Table(title="Sessions")
+        table.add_column("ID", style="dim")
+        table.add_column("Date")
+        table.add_column("Project")
+        table.add_column("Title")
+        table.add_column("Tags")
+        for s in sessions:
+            table.add_row(
+                str(s["id"]),
+                s.get("session_date", ""),
+                s.get("project", ""),
+                s.get("title", ""),
+                s.get("tags", ""),
+            )
+        console.print(table)
+    else:
+        for s in sessions:
+            print(f"{s['id']}: [{s.get('session_date', '')}] {s.get('title', '')}")
+
+
+@session_app.command("show")
+def session_show(
+    session_id: int = typer.Argument(..., help="Session ID"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Show details for a single session."""
+    from beacon.session import get_session
+
+    conn = get_connection()
+    session = get_session(conn, session_id)
+    conn.close()
+
+    if not session:
+        if as_json:
+            print(json.dumps({"error": "Session not found", "code": 2}))
+        else:
+            _print(f"Session {session_id} not found.")
+        raise typer.Exit(2)
+
+    if as_json:
+        print(json.dumps(session))
+        return
+
+    if HAS_RICH:
+        details = f"**Project:** {session['project']}\n"
+        details += f"**Date:** {session.get('session_date', '')}\n"
+        details += f"**Duration:** {session.get('duration_estimate', '') or ''}\n\n"
+        details += f"**Summary:** {session['summary']}\n"
+        if session.get("challenges"):
+            details += f"\n**Challenges:** {session['challenges']}\n"
+        if session.get("technologies"):
+            details += f"\n**Technologies:** {session['technologies']}\n"
+        if session.get("impact"):
+            details += f"\n**Impact:** {session['impact']}\n"
+        if session.get("tags"):
+            details += f"\n**Tags:** {session['tags']}\n"
+        if session.get("obsidian_path"):
+            details += f"\n**Obsidian:** {session['obsidian_path']}\n"
+        console.print(Panel(details, title=session["title"]))
+    else:
+        print(f"Session {session['id']}: {session['title']}")
+        print(f"  Project: {session['project']}")
+        print(f"  Summary: {session['summary']}")
 
 
 def main():
