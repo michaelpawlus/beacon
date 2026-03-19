@@ -94,7 +94,7 @@ class TestApplicationCLI:
         conn, _ = db
         mock_conn.return_value = conn
         result = runner.invoke(app, ["application", "show", "999"])
-        assert result.exit_code == 0
+        assert result.exit_code == 2
         assert "No application found" in result.output
 
     @patch("beacon.cli.get_connection")

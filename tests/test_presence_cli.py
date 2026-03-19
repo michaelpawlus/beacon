@@ -61,7 +61,7 @@ class TestPresenceDrafts:
         conn, db_path = db
         with patch("beacon.cli.get_connection", return_value=conn):
             result = runner.invoke(app, ["presence", "draft", "999"])
-            assert result.exit_code == 0
+            assert result.exit_code == 2
             assert "No draft found" in result.output
 
     def test_publish_draft(self, db):

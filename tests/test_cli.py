@@ -129,7 +129,7 @@ class TestJobSubcommands:
         mock_get_conn.return_value = conn
 
         result = runner.invoke(app, ["job", "show", "99999"])
-        assert result.exit_code == 0
+        assert result.exit_code == 2
         assert "No job found" in result.output
 
 

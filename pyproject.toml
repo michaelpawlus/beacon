@@ -59,6 +59,7 @@ target-version = "py311"
 select = ["E", "F", "I", "N", "W"]
 
 [tool.ruff.lint.per-file-ignores]
+"beacon/cli.py" = ["E501"]
 "beacon/db/seed.py" = ["E501"]
 "tests/*" = ["E501"]
 "beacon/export/formatters.py" = ["E501"]

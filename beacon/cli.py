@@ -18,6 +18,7 @@ Usage:
 """
 
 import json
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -59,6 +60,26 @@ def _print(msg: str) -> None:
         print(msg)
 
 
+def _stderr(msg: str) -> None:
+    """Print human-readable message to stderr (used in --json mode)."""
+    print(msg, file=sys.stderr)
+
+
+def _json_out(data) -> None:
+    """Write JSON to stdout and return."""
+    print(json.dumps(data, default=str))
+
+
+def _row_to_dict(row) -> dict:
+    """Convert a sqlite3.Row to a plain dict."""
+    return dict(row) if row else {}
+
+
+def _rows_to_list(rows) -> list[dict]:
+    """Convert a list of sqlite3.Row to list of dicts."""
+    return [dict(r) for r in rows]
+
+
 @app.command()
 def init(seed: bool = typer.Option(True, help="Seed with initial company data")):
     """Initialize the database and optionally seed with data."""
@@ -84,26 +105,42 @@ def init(seed: bool = typer.Option(True, help="Seed with initial company data"))
 def companies(
     tier: int = typer.Option(None, "--tier", "-t", help="Filter by tier (1-4)"),
     min_score: float = typer.Option(None, "--min-score", "-m", help="Minimum AI-first score"),
+    tools: str = typer.Option(None, "--tools", help="Filter by adopted tool name (partial match)"),
     limit: int = typer.Option(50, "--limit", "-l", help="Max results"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """List companies sorted by AI-first score."""
     conn = get_connection()
 
-    query = "SELECT * FROM companies WHERE 1=1"
-    params = []
+    if tools:
+        query = (
+            "SELECT DISTINCT c.* FROM companies c"
+            " JOIN tools_adopted t ON c.id = t.company_id"
+            " WHERE t.tool_name LIKE ?"
+        )
+        params: list = [f"%{tools}%"]
+        col_prefix = "c."
+    else:
+        query = "SELECT * FROM companies WHERE 1=1"
+        params = []
+        col_prefix = ""
 
     if tier:
-        query += " AND tier = ?"
+        query += f" AND {col_prefix}tier = ?"
         params.append(tier)
     if min_score:
-        query += " AND ai_first_score >= ?"
+        query += f" AND {col_prefix}ai_first_score >= ?"
         params.append(min_score)
 
-    query += " ORDER BY ai_first_score DESC LIMIT ?"
+    query += f" ORDER BY {col_prefix}ai_first_score DESC LIMIT ?"
     params.append(limit)
 
     rows = conn.execute(query, params).fetchall()
     conn.close()
+
+    if as_json:
+        _json_out(_rows_to_list(rows))
+        return
 
     if not rows:
         _print("No companies found matching criteria.")
@@ -137,7 +174,10 @@ def companies(
 
 
 @app.command()
-def show(name: str = typer.Argument(help="Company name (partial match)")):
+def show(
+    name: str = typer.Argument(help="Company name (partial match)"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
     """Show detailed information for a company."""
     conn = get_connection()
 
@@ -146,9 +186,12 @@ def show(name: str = typer.Argument(help="Company name (partial match)")):
     ).fetchone()
 
     if not row:
-        _print(f"No company found matching '{name}'")
+        if as_json:
+            _json_out({"error": f"No company found matching '{name}'", "code": 2})
+        else:
+            _print(f"No company found matching '{name}'")
         conn.close()
-        return
+        raise typer.Exit(2)
 
     cid = row["id"]
 
@@ -175,6 +218,16 @@ def show(name: str = typer.Argument(help="Company name (partial match)")):
     ).fetchall()
 
     conn.close()
+
+    if as_json:
+        data = _row_to_dict(row)
+        data["signals"] = _rows_to_list(signals)
+        data["leadership"] = _rows_to_list(leadership)
+        data["tools"] = _rows_to_list(tools)
+        data["score_breakdown"] = _row_to_dict(scores) if scores else None
+        data["active_jobs"] = _rows_to_list(active_jobs)
+        _json_out(data)
+        return
 
     if HAS_RICH:
         console.print(Panel(f"[bold]{row['name']}[/bold] — {row['description'] or ''}", style="blue"))
@@ -234,7 +287,9 @@ def refresh_scores():
 
 
 @app.command()
-def stats():
+def stats(
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
     """Show database statistics."""
     conn = get_connection()
     companies_count = conn.execute("SELECT COUNT(*) as cnt FROM companies").fetchone()["cnt"]
@@ -256,6 +311,20 @@ def stats():
     ).fetchone()["cnt"]
 
     conn.close()
+
+    if as_json:
+        _json_out({
+            "companies": companies_count,
+            "ai_signals": signals_count,
+            "leadership_signals": leadership_count,
+            "tools": tools_count,
+            "average_score": round(avg_score, 1) if avg_score else None,
+            "tiers": {str(tc["tier"]): tc["cnt"] for tc in tier_counts},
+            "jobs_total": total_jobs,
+            "jobs_active": active_jobs,
+            "jobs_relevant": relevant_jobs,
+        })
+        return
 
     _print("\n[bold]Beacon Database Stats[/bold]" if HAS_RICH else "\nBeacon Database Stats")
     _print(f"  Companies:         {companies_count}")
@@ -320,21 +389,39 @@ def scan(
     company: str = typer.Option(None, "--company", "-c", help="Company name filter"),
     platform: str = typer.Option(None, "--platform", "-p", help="Platform filter (greenhouse, lever, ashby, custom)"),
     min_score: float = typer.Option(None, "--min-score", "-m", help="Minimum company AI-first score"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """Scan career pages for job listings."""
     try:
         import httpx  # noqa: F401
     except ImportError:
-        _print("Scraping dependencies not installed. Run: pip install beacon[scraping]")
+        if as_json:
+            _json_out({"error": "Scraping dependencies not installed. Run: pip install beacon[scraping]", "code": 1})
+        else:
+            _print("Scraping dependencies not installed. Run: pip install beacon[scraping]")
         raise typer.Exit(1)
 
     from beacon.scanner import scan_all
 
     conn = get_connection()
-    _print("Scanning career pages..." if not HAS_RICH else "[bold]Scanning career pages...[/bold]")
+    if not as_json:
+        _print("Scanning career pages..." if not HAS_RICH else "[bold]Scanning career pages...[/bold]")
 
     results = scan_all(conn, platform=platform, company_name=company, min_score=min_score)
     conn.close()
+
+    if as_json:
+        data = [
+            {
+                "company": r.company_name, "platform": r.platform,
+                "jobs_found": r.jobs_found, "new_jobs": r.new_jobs,
+                "updated_jobs": r.updated_jobs, "stale_jobs": r.stale_jobs,
+                "error": r.error,
+            }
+            for r in results
+        ]
+        _json_out(data)
+        return
 
     if not results:
         _print("No companies matched the filter criteria.")
@@ -379,17 +466,19 @@ def jobs(
     company: str = typer.Option(None, "--company", "-c", help="Company name filter"),
     status: str = typer.Option(None, "--status", "-s", help="Filter by status (active, closed, applied, ignored)"),
     min_relevance: float = typer.Option(None, "--min-relevance", "-r", help="Minimum relevance score"),
+    since: str = typer.Option(None, "--since", help="Show jobs first seen after date (YYYY-MM-DD)"),
     new: bool = typer.Option(False, "--new", help="Show only jobs from last 24 hours"),
     limit: int = typer.Option(50, "--limit", "-l", help="Max results"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """List job listings sorted by relevance score."""
     from beacon.db.jobs import get_jobs, get_new_jobs_since
 
     conn = get_connection()
 
-    if new:
-        since = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-        rows = get_new_jobs_since(conn, since, min_relevance)
+    if new or since:
+        since_dt = since or (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+        rows = get_new_jobs_since(conn, since_dt, min_relevance)
     else:
         company_id = None
         if company:
@@ -397,12 +486,19 @@ def jobs(
             if c:
                 company_id = c["id"]
             else:
-                _print(f"No company found matching '{company}'")
+                if as_json:
+                    _json_out({"error": f"No company found matching '{company}'", "code": 2})
+                else:
+                    _print(f"No company found matching '{company}'")
                 conn.close()
-                return
+                raise typer.Exit(2)
         rows = get_jobs(conn, company_id=company_id, status=status, min_relevance=min_relevance, limit=limit)
 
     conn.close()
+
+    if as_json:
+        _json_out(_rows_to_list(rows))
+        return
 
     if not rows:
         _print("No jobs found matching criteria.")
@@ -434,7 +530,10 @@ def jobs(
 
 
 @job_app.command("show")
-def job_show(job_id: int = typer.Argument(help="Job listing ID")):
+def job_show(
+    job_id: int = typer.Argument(help="Job listing ID"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
     """Show detailed information for a job listing."""
     from beacon.db.jobs import get_job_by_id
 
@@ -443,7 +542,20 @@ def job_show(job_id: int = typer.Argument(help="Job listing ID")):
     conn.close()
 
     if not job:
-        _print(f"No job found with ID {job_id}")
+        if as_json:
+            _json_out({"error": f"No job found with ID {job_id}", "code": 2})
+        else:
+            _print(f"No job found with ID {job_id}")
+        raise typer.Exit(2)
+
+    if as_json:
+        data = _row_to_dict(job)
+        if data.get("match_reasons"):
+            try:
+                data["match_reasons"] = json.loads(data["match_reasons"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+        _json_out(data)
         return
 
     if HAS_RICH:
@@ -501,8 +613,8 @@ def job_apply(
     if generate_materials:
         _print("Generating application materials..." if not HAS_RICH else "[bold]Generating application materials...[/bold]")
         try:
-            from beacon.materials.resume import tailor_resume
             from beacon.materials.renderer import render_markdown
+            from beacon.materials.resume import tailor_resume
             result = tailor_resume(conn, job_id)
             resume_path = f"resume_{job_id}.md"
             Path(resume_path).write_text(render_markdown(result))
@@ -547,6 +659,7 @@ def report_digest(
     since: str = typer.Option(None, "--since", help="Date (YYYY-MM-DD) to filter jobs from"),
     min_relevance: float = typer.Option(7.0, "--min-relevance", "-r"),
     output: str = typer.Option(None, "--output", "-o", help="Output file path"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """Generate a markdown digest of recent relevant jobs."""
     from beacon.export.formatters import export_jobs_digest
@@ -558,6 +671,10 @@ def report_digest(
     content = export_jobs_digest(conn, since, min_relevance)
     conn.close()
 
+    if as_json:
+        _json_out({"since": since, "min_relevance": min_relevance, "content": content})
+        return
+
     if output:
         Path(output).write_text(content)
         _print(f"Digest written to {output}")
@@ -568,6 +685,7 @@ def report_digest(
 @report_app.command("jobs")
 def report_jobs(
     output: str = typer.Option(None, "--output", "-o", help="Output file path"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """Generate a full markdown report of all job listings."""
     from beacon.export.formatters import export_jobs_report
@@ -575,6 +693,10 @@ def report_jobs(
     conn = get_connection()
     content = export_jobs_report(conn)
     conn.close()
+
+    if as_json:
+        _json_out({"content": content})
+        return
 
     if output:
         Path(output).write_text(content)
@@ -648,7 +770,9 @@ def profile_export(
 
 
 @profile_app.command("show")
-def profile_show():
+def profile_show(
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
     """Show full profile summary."""
     from beacon.db.profile import get_education, get_projects, get_publications, get_skills, get_work_experiences
 
@@ -659,6 +783,16 @@ def profile_show():
     edu = get_education(conn)
     pubs = get_publications(conn)
     conn.close()
+
+    if as_json:
+        _json_out({
+            "work_experiences": _rows_to_list(work),
+            "projects": _rows_to_list(projects),
+            "skills": _rows_to_list(skills),
+            "education": _rows_to_list(edu),
+            "publications": _rows_to_list(pubs),
+        })
+        return
 
     if HAS_RICH:
         console.print(Panel("[bold]Professional Profile Summary[/bold]", style="blue"))
@@ -687,6 +821,7 @@ def profile_show():
 @profile_app.command("work")
 def profile_work(
     work_id: int = typer.Argument(None, help="Work experience ID for detail view"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """List work experiences or show detail."""
     from beacon.db.profile import get_work_experience_by_id, get_work_experiences
@@ -697,6 +832,21 @@ def profile_work(
         exp = get_work_experience_by_id(conn, work_id)
         conn.close()
         if not exp:
+            if as_json:
+                _json_out({"error": f"No work experience found with ID {work_id}", "code": 2})
+                raise typer.Exit(2)
+            _print(f"No work experience found with ID {work_id}")
+            return
+        if as_json:
+            data = _row_to_dict(exp)
+            for field in ("key_achievements", "technologies", "metrics"):
+                if data.get(field):
+                    try:
+                        data[field] = json.loads(data[field])
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+            _json_out(data)
+            return
             _print(f"No work experience found with ID {work_id}")
             return
 
@@ -722,6 +872,11 @@ def profile_work(
     else:
         exps = get_work_experiences(conn)
         conn.close()
+
+        if as_json:
+            _json_out(_rows_to_list(exps))
+            return
+
         if not exps:
             _print("No work experiences recorded.")
             return
@@ -747,6 +902,7 @@ def profile_work(
 @profile_app.command("projects")
 def profile_projects(
     project_id: int = typer.Argument(None, help="Project ID for detail view"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """List projects or show detail."""
     from beacon.db.profile import get_project_by_id, get_projects
@@ -757,7 +913,21 @@ def profile_projects(
         proj = get_project_by_id(conn, project_id)
         conn.close()
         if not proj:
+            if as_json:
+                _json_out({"error": f"No project found with ID {project_id}", "code": 2})
+                raise typer.Exit(2)
             _print(f"No project found with ID {project_id}")
+            return
+
+        if as_json:
+            data = _row_to_dict(proj)
+            for field in ("technologies", "outcomes"):
+                if data.get(field):
+                    try:
+                        data[field] = json.loads(data[field])
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+            _json_out(data)
             return
 
         if HAS_RICH:
@@ -779,6 +949,11 @@ def profile_projects(
     else:
         projects = get_projects(conn)
         conn.close()
+
+        if as_json:
+            _json_out(_rows_to_list(projects))
+            return
+
         if not projects:
             _print("No projects recorded.")
             return
@@ -801,13 +976,19 @@ def profile_projects(
 
 
 @profile_app.command("skills")
-def profile_skills():
+def profile_skills(
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
     """List skills grouped by category."""
     from beacon.db.profile import get_skills
 
     conn = get_connection()
     skills = get_skills(conn)
     conn.close()
+
+    if as_json:
+        _json_out(_rows_to_list(skills))
+        return
 
     if not skills:
         _print("No skills recorded.")
@@ -839,13 +1020,19 @@ def profile_skills():
 
 
 @profile_app.command("education")
-def profile_education():
+def profile_education(
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
     """List education entries."""
     from beacon.db.profile import get_education
 
     conn = get_connection()
     edu = get_education(conn)
     conn.close()
+
+    if as_json:
+        _json_out(_rows_to_list(edu))
+        return
 
     if not edu:
         _print("No education entries recorded.")
@@ -873,13 +1060,19 @@ def profile_education():
 
 
 @profile_app.command("publications")
-def profile_publications():
+def profile_publications(
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
     """List publications and talks."""
     from beacon.db.profile import get_publications
 
     conn = get_connection()
     pubs = get_publications(conn)
     conn.close()
+
+    if as_json:
+        _json_out(_rows_to_list(pubs))
+        return
 
     if not pubs:
         _print("No publications or talks recorded.")
@@ -936,6 +1129,7 @@ def profile_add_presentation(
 def profile_presentations(
     detail: int = typer.Option(None, "--detail", help="Presentation ID for detail view"),
     status: str = typer.Option(None, "--status", "-s", help="Filter by status"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """List presentations or show detail."""
     from beacon.db.speaker import get_presentation_by_id, get_presentations
@@ -946,7 +1140,21 @@ def profile_presentations(
         pres = get_presentation_by_id(conn, detail)
         conn.close()
         if not pres:
+            if as_json:
+                _json_out({"error": f"No presentation found with ID {detail}", "code": 2})
+                raise typer.Exit(2)
             _print(f"No presentation found with ID {detail}")
+            return
+
+        if as_json:
+            data = _row_to_dict(pres)
+            for field in ("key_points", "co_presenters", "tags"):
+                if data.get(field):
+                    try:
+                        data[field] = json.loads(data[field])
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+            _json_out(data)
             return
 
         if HAS_RICH:
@@ -981,6 +1189,11 @@ def profile_presentations(
     else:
         presentations = get_presentations(conn, status=status)
         conn.close()
+
+        if as_json:
+            _json_out(_rows_to_list(presentations))
+            return
+
         if not presentations:
             _print("No presentations recorded.")
             return
@@ -1008,13 +1221,19 @@ def profile_presentations(
 
 
 @profile_app.command("speaker")
-def profile_speaker():
+def profile_speaker(
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
     """Show current speaker profile (headshot path and bios)."""
     from beacon.db.speaker import get_speaker_profile
 
     conn = get_connection()
     profile = get_speaker_profile(conn)
     conn.close()
+
+    if as_json:
+        _json_out(_row_to_dict(profile) if profile else {})
+        return
 
     if not profile:
         _print("No speaker profile set. Use 'profile set-headshot' or 'presence bio --save' to create one.")
@@ -1057,7 +1276,9 @@ def profile_set_headshot(
 
 
 @profile_app.command("stats")
-def profile_stats():
+def profile_stats(
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
     """Show profile completeness dashboard."""
     from beacon.db.profile import get_education, get_projects, get_publications, get_skills, get_work_experiences
 
@@ -1077,9 +1298,20 @@ def profile_stats():
         ("Publications/Talks", len(pubs), 0),
     ]
 
-    total = sum(count for _, count, _ in sections)
     filled = sum(1 for _, count, minimum in sections if count >= minimum)
     completeness = int((filled / len(sections)) * 100)
+
+    if as_json:
+        skill_categories: dict[str, int] = {}
+        for s in skills:
+            cat = s["category"] or "uncategorized"
+            skill_categories[cat] = skill_categories.get(cat, 0) + 1
+        _json_out({
+            "completeness_pct": completeness,
+            "sections": {label: {"count": count, "minimum": minimum, "met": count >= minimum} for label, count, minimum in sections},
+            "skill_categories": skill_categories,
+        })
+        return
 
     if HAS_RICH:
         console.print(Panel(f"[bold]Profile Completeness: {completeness}%[/bold]", style="blue"))
@@ -1183,6 +1415,7 @@ def profile_cover_letter(
 @application_app.command("list")
 def application_list(
     status: str = typer.Option(None, "--status", "-s", help="Filter by status"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """List all applications."""
     from beacon.db.profile import get_applications
@@ -1190,6 +1423,10 @@ def application_list(
     conn = get_connection()
     apps = get_applications(conn, status=status)
     conn.close()
+
+    if as_json:
+        _json_out(_rows_to_list(apps))
+        return
 
     if not apps:
         _print("No applications found.")
@@ -1219,7 +1456,10 @@ def application_list(
 
 
 @application_app.command("show")
-def application_show(app_id: int = typer.Argument(help="Application ID")):
+def application_show(
+    app_id: int = typer.Argument(help="Application ID"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
     """Show detailed application info."""
     from beacon.db.profile import get_application_by_id
 
@@ -1228,7 +1468,14 @@ def application_show(app_id: int = typer.Argument(help="Application ID")):
     conn.close()
 
     if not app_row:
-        _print(f"No application found with ID {app_id}")
+        if as_json:
+            _json_out({"error": f"No application found with ID {app_id}", "code": 2})
+        else:
+            _print(f"No application found with ID {app_id}")
+        raise typer.Exit(2)
+
+    if as_json:
+        _json_out(_row_to_dict(app_row))
         return
 
     if HAS_RICH:
@@ -1286,8 +1533,8 @@ def presence_github_readme(
     output: str = typer.Option(None, "--output", "-o", help="Output file path"),
 ):
     """Generate a GitHub profile README from your profile data."""
-    from beacon.presence.generator import generate_github_readme
     from beacon.presence.adapters import adapt_for_github_markdown
+    from beacon.presence.generator import generate_github_readme
 
     conn = get_connection()
     _print("Generating GitHub README..." if not HAS_RICH else "[bold]Generating GitHub README...[/bold]")
@@ -1316,6 +1563,7 @@ def presence_github_readme(
 def presence_drafts(
     platform: str = typer.Option(None, "--platform", "-p", help="Filter by platform"),
     status: str = typer.Option(None, "--status", "-s", help="Filter by status"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """List all content drafts."""
     from beacon.db.content import get_content_drafts
@@ -1323,6 +1571,10 @@ def presence_drafts(
     conn = get_connection()
     drafts = get_content_drafts(conn, platform=platform, status=status)
     conn.close()
+
+    if as_json:
+        _json_out(_rows_to_list(drafts))
+        return
 
     if not drafts:
         _print("No content drafts found.")
@@ -1355,6 +1607,7 @@ def presence_drafts(
 @presence_app.command("draft")
 def presence_draft_show(
     draft_id: int = typer.Argument(help="Draft ID"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """View a specific content draft."""
     from beacon.db.content import get_content_draft_by_id
@@ -1364,7 +1617,14 @@ def presence_draft_show(
     conn.close()
 
     if not draft:
-        _print(f"No draft found with ID {draft_id}")
+        if as_json:
+            _json_out({"error": f"No draft found with ID {draft_id}", "code": 2})
+        else:
+            _print(f"No draft found with ID {draft_id}")
+        raise typer.Exit(2)
+
+    if as_json:
+        _json_out(_row_to_dict(draft))
         return
 
     if HAS_RICH:
@@ -1427,8 +1687,8 @@ def presence_linkedin_headline():
 @presence_app.command("linkedin-about")
 def presence_linkedin_about():
     """Generate a LinkedIn About section from your profile."""
-    from beacon.presence.generator import generate_linkedin_about
     from beacon.presence.adapters import adapt_for_linkedin
+    from beacon.presence.generator import generate_linkedin_about
 
     conn = get_connection()
     _print("Generating LinkedIn About..." if not HAS_RICH else "[bold]Generating LinkedIn About...[/bold]")
@@ -1454,8 +1714,8 @@ def presence_linkedin_post(
     tone: str = typer.Option("professional", "--tone", help="Tone: professional, conversational, technical"),
 ):
     """Generate a LinkedIn post draft on a given topic."""
-    from beacon.presence.generator import generate_linkedin_post
     from beacon.presence.adapters import adapt_for_linkedin
+    from beacon.presence.generator import generate_linkedin_post
 
     conn = get_connection()
     _print("Generating LinkedIn post..." if not HAS_RICH else "[bold]Generating LinkedIn post...[/bold]")
@@ -1579,6 +1839,7 @@ def presence_blog_export(
 def presence_calendar(
     platform: str = typer.Option(None, "--platform", "-p", help="Filter by platform"),
     status: str = typer.Option(None, "--status", "-s", help="Filter by status"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """List content calendar entries."""
     from beacon.db.content import get_calendar_entries
@@ -1586,6 +1847,10 @@ def presence_calendar(
     conn = get_connection()
     entries = get_calendar_entries(conn, platform=platform, status=status)
     conn.close()
+
+    if as_json:
+        _json_out(_rows_to_list(entries))
+        return
 
     if not entries:
         _print("No calendar entries found.")
@@ -1641,8 +1906,8 @@ def presence_calendar_add(
 @presence_app.command("calendar-seed")
 def presence_calendar_seed():
     """Auto-generate calendar entries from content ideas."""
-    from beacon.presence.generator import generate_content_ideas
     from beacon.db.content import add_calendar_entry
+    from beacon.presence.generator import generate_content_ideas
 
     conn = get_connection()
     _print("Generating content ideas..." if not HAS_RICH else "[bold]Generating content ideas...[/bold]")
@@ -1697,7 +1962,7 @@ def presence_bio(
             set_bio(conn, short_bio=content, long_bio=content)
         else:
             set_bio(conn, short_bio=content)
-        _print(f"[green]✓[/green] Bio saved to speaker profile" if HAS_RICH else "✓ Bio saved to speaker profile")
+        _print("[green]✓[/green] Bio saved to speaker profile" if HAS_RICH else "✓ Bio saved to speaker profile")
 
     conn.close()
 
@@ -1754,8 +2019,8 @@ def presence_site_projects(
     output_dir: str = typer.Option(None, "--output", "-o", help="Output directory"),
 ):
     """Generate project pages for the personal site."""
-    from beacon.presence.site import generate_project_page
     from beacon.db.profile import get_projects
+    from beacon.presence.site import generate_project_page
 
     conn = get_connection()
     projects = get_projects(conn)
@@ -1815,10 +2080,28 @@ def presence_enrich(
 # --- Phase 5: Configuration commands ---
 
 @config_app.command("show")
-def config_show():
+def config_show(
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
     """Show current configuration."""
     from beacon.config import load_config
     config = load_config()
+
+    if as_json:
+        _json_out({
+            "notification_email": config.notification_email,
+            "smtp_host": config.smtp_host,
+            "smtp_port": config.smtp_port,
+            "smtp_user": config.smtp_user,
+            "notification_cadence": config.notification_cadence,
+            "scan_cadence": config.scan_cadence,
+            "min_relevance_alert": config.min_relevance_alert,
+            "desktop_notifications": config.desktop_notifications,
+            "log_level": config.log_level,
+            "log_file": config.log_file,
+        })
+        return
+
     if HAS_RICH:
         console.print(Panel("[bold]Beacon Configuration[/bold]", style="blue"))
     else:
@@ -1889,12 +2172,17 @@ def application_outcome(
 @application_app.command("outcomes")
 def application_outcomes(
     outcome_filter: str = typer.Option(None, "--outcome", "-o", help="Filter by outcome type"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """List all recorded outcomes."""
     from beacon.db.feedback import get_outcomes
     conn = get_connection()
     outcomes = get_outcomes(conn, outcome_filter=outcome_filter)
     conn.close()
+
+    if as_json:
+        _json_out(_rows_to_list(outcomes))
+        return
 
     if not outcomes:
         _print("No outcomes recorded.")
@@ -1925,13 +2213,24 @@ def application_outcomes(
 
 
 @application_app.command("effectiveness")
-def application_effectiveness():
+def application_effectiveness(
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
     """Show resume variant effectiveness analysis."""
     from beacon.db.feedback import get_outcome_stats, get_variant_effectiveness
     conn = get_connection()
-    stats = get_outcome_stats(conn)
+    outcome_stats = get_outcome_stats(conn)
     variants = get_variant_effectiveness(conn)
     conn.close()
+
+    if as_json:
+        _json_out({
+            "outcomes": _rows_to_list(outcome_stats),
+            "variants": _rows_to_list(variants),
+        })
+        return
+
+    stats = outcome_stats
 
     if HAS_RICH:
         console.print(Panel("[bold]Application Effectiveness[/bold]", style="blue"))
@@ -1958,13 +2257,19 @@ def application_effectiveness():
 @app.command()
 def dashboard(
     compact: bool = typer.Option(False, "--compact", help="Show compact dashboard"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """Show the unified Beacon dashboard."""
     from beacon.dashboard import gather_dashboard_data
-    from beacon.dashboard_render import render_dashboard
     conn = get_connection()
     data = gather_dashboard_data(conn)
     conn.close()
+
+    if as_json:
+        _json_out(data)
+        return
+
+    from beacon.dashboard_render import render_dashboard
     render_dashboard(console if HAS_RICH else None, data, compact=compact)
 
 
@@ -2013,6 +2318,7 @@ def automation_run(
 @automation_app.command("log")
 def automation_log(
     limit: int = typer.Option(10, "--limit", "-l", help="Number of recent entries"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """Show automation run history."""
     conn = get_connection()
@@ -2020,6 +2326,10 @@ def automation_log(
         "SELECT * FROM automation_log ORDER BY started_at DESC LIMIT ?", (limit,)
     ).fetchall()
     conn.close()
+
+    if as_json:
+        _json_out(_rows_to_list(rows))
+        return
 
     if not rows:
         _print("No automation runs recorded.")
@@ -2059,7 +2369,12 @@ def automation_cron(
     every: int = typer.Option(6, "--every", help="Run every N hours (for install)"),
 ):
     """Manage cron-based automation scheduling."""
-    from beacon.automation.cron_helper import generate_crontab_entry, install_crontab, show_crontab_status, uninstall_crontab
+    from beacon.automation.cron_helper import (
+        generate_crontab_entry,
+        install_crontab,
+        show_crontab_status,
+        uninstall_crontab,
+    )
     if action == "install":
         entry = generate_crontab_entry(every)
         success = install_crontab(entry)
@@ -2106,13 +2421,19 @@ def automation_agents(
 
 
 @automation_app.command("agents-status")
-def automation_agents_status():
+def automation_agents_status(
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
     """Show recent agent run summaries."""
     conn = get_connection()
     rows = conn.execute(
         "SELECT * FROM automation_log WHERE run_type = 'full' ORDER BY started_at DESC LIMIT 5"
     ).fetchall()
     conn.close()
+
+    if as_json:
+        _json_out(_rows_to_list(rows))
+        return
 
     if not rows:
         _print("No agent runs recorded.")
@@ -2121,7 +2442,7 @@ def automation_agents_status():
     _print("[bold]Recent Agent Runs:[/bold]" if HAS_RICH else "Recent Agent Runs:")
     for r in rows:
         duration = f" ({r['duration_seconds']:.1f}s)" if r["duration_seconds"] else ""
-        status = "[green]OK[/green]" if not r["errors"] else f"[red]Error[/red]"
+        status = "[green]OK[/green]" if not r["errors"] else "[red]Error[/red]"
         if not HAS_RICH:
             status = "OK" if not r["errors"] else "Error"
         _print(f"  {r['started_at'][:16]}: {status}{duration} — {r['signals_refreshed']} signals, {r['new_relevant_jobs']} jobs")
@@ -2130,22 +2451,32 @@ def automation_agents_status():
 # --- Phase 5: Scoring feedback commands ---
 
 @report_app.command("scoring-feedback")
-def report_scoring_feedback():
+def report_scoring_feedback(
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
     """Show scoring calibration report."""
     from beacon.research.scoring_calibration import generate_scoring_report
     conn = get_connection()
     report = generate_scoring_report(conn)
     conn.close()
+    if as_json:
+        _json_out({"content": report})
+        return
     print(report)
 
 
 @report_app.command("variant-effectiveness")
-def report_variant_effectiveness():
+def report_variant_effectiveness(
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
     """Show resume variant effectiveness report."""
     from beacon.materials.variant_tracker import generate_variant_report
     conn = get_connection()
     report = generate_variant_report(conn)
     conn.close()
+    if as_json:
+        _json_out({"content": report})
+        return
     print(report)
 
 
