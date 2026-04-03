@@ -325,6 +325,26 @@ CREATE TABLE IF NOT EXISTS speaker_profile (
     updated_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Media log — videos, podcasts, articles consumed with personal reactions
+CREATE TABLE IF NOT EXISTS media_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    url TEXT,
+    source_type TEXT NOT NULL CHECK(source_type IN ('video', 'podcast', 'article', 'talk', 'course', 'book')),
+    creator TEXT,                -- channel name, author, speaker
+    platform TEXT,               -- YouTube, Spotify, etc.
+    date_consumed TEXT,          -- YYYY-MM-DD
+    rating INTEGER CHECK(rating BETWEEN 1 AND 5),
+    tags TEXT,                   -- JSON array
+    key_takeaways TEXT,          -- free-text notes on what you learned
+    personal_reaction TEXT,      -- your feelings, philosophy alignment, opinions
+    team_shareable BOOLEAN DEFAULT 0,
+    share_note TEXT,             -- simplified blurb for team sharing
+    content_draft_id INTEGER REFERENCES content_drafts(id) ON DELETE SET NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Claude Code session logs (for portfolio / application materials)
 CREATE TABLE IF NOT EXISTS sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -371,3 +391,7 @@ CREATE INDEX IF NOT EXISTS idx_automation_log_type ON automation_log(run_type);
 CREATE INDEX IF NOT EXISTS idx_automation_log_started ON automation_log(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_presentations_status ON presentations(status);
 CREATE INDEX IF NOT EXISTS idx_presentations_date ON presentations(date);
+CREATE INDEX IF NOT EXISTS idx_media_log_source_type ON media_log(source_type);
+CREATE INDEX IF NOT EXISTS idx_media_log_team_shareable ON media_log(team_shareable);
+CREATE INDEX IF NOT EXISTS idx_media_log_date ON media_log(date_consumed DESC);
+CREATE INDEX IF NOT EXISTS idx_media_log_rating ON media_log(rating DESC);

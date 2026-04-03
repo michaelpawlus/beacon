@@ -32,5 +32,19 @@ Thumbs.db
 .coverage
 htmlcov/
 
-# Generated reports (keep the template, not generated output)
+# Generated reports and application materials
 data/ai-first-company-index.md
+data/applications/
+
+# Unrelated projects (have their own repos)
+constituent-news-alerts/
+constituent_household_summary_poc/
+constituent_summarizer/
+high_school_classifier/
+phi_detection/
+windfall_capacity_analysis/
+
+# Loose files not part of beacon
+OPRN26_logo.png
+age_of_the_builders.pptx
+create_presentation.py

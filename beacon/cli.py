@@ -42,6 +42,7 @@ presence_app = typer.Typer(help="Professional presence & content generation")
 config_app = typer.Typer(help="Configuration management")
 automation_app = typer.Typer(help="Automation and scheduling")
 session_app = typer.Typer(help="Claude Code session logging")
+media_app = typer.Typer(help="Media log — track videos, podcasts, articles")
 app.add_typer(job_app, name="job")
 app.add_typer(report_app, name="report")
 app.add_typer(profile_app, name="profile")
@@ -50,6 +51,7 @@ app.add_typer(presence_app, name="presence")
 app.add_typer(config_app, name="config")
 app.add_typer(automation_app, name="automation")
 app.add_typer(session_app, name="session")
+app.add_typer(media_app, name="media")
 console = Console() if HAS_RICH else None
 
 
@@ -2687,6 +2689,241 @@ def session_show(
         print(f"Session {session['id']}: {session['title']}")
         print(f"  Project: {session['project']}")
         print(f"  Summary: {session['summary']}")
+
+
+# ── Media Log ──────────────────────────────────────────────────────────
+
+
+@media_app.command("add")
+def media_add(
+    title: str = typer.Argument(..., help="Title of the video, podcast, or article"),
+    source_type: str = typer.Option("video", "--type", "-t", help="Source type: video, podcast, article, talk, course, book"),
+    url: str = typer.Option(None, "--url", "-u", help="URL"),
+    creator: str = typer.Option(None, "--creator", "-c", help="Creator, channel, or author"),
+    platform: str = typer.Option(None, "--platform", "-p", help="Platform (YouTube, Spotify, etc.)"),
+    date: str = typer.Option(None, "--date", "-d", help="Date consumed (YYYY-MM-DD)"),
+    rating: int = typer.Option(None, "--rating", "-r", help="Rating 1-5"),
+    tag: list[str] = typer.Option([], "--tag", help="Tags (repeatable)"),
+    takeaways: str = typer.Option(None, "--takeaways", help="Key takeaways"),
+    reaction: str = typer.Option(None, "--reaction", help="Personal reaction / feelings"),
+    shareable: bool = typer.Option(False, "--shareable", "-s", help="Mark as team-shareable"),
+    share_note: str = typer.Option(None, "--share-note", help="Simplified note for team sharing"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Log a video, podcast, article, or other media you consumed."""
+    from beacon.media import add_media
+
+    conn = get_connection()
+    media_id = add_media(
+        conn,
+        title=title,
+        source_type=source_type,
+        url=url,
+        creator=creator,
+        platform=platform,
+        date_consumed=date,
+        rating=rating,
+        tags=tag or None,
+        key_takeaways=takeaways,
+        personal_reaction=reaction,
+        team_shareable=shareable,
+        share_note=share_note,
+    )
+    conn.close()
+
+    result = {"id": media_id, "title": title, "source_type": source_type}
+    if as_json:
+        _json_out(result)
+    else:
+        _stderr(f"Media logged (id={media_id}): {title}")
+
+
+@media_app.command("list")
+def media_list(
+    source_type: str = typer.Option(None, "--type", "-t", help="Filter by source type"),
+    tag: str = typer.Option(None, "--tag", help="Filter by tag"),
+    min_rating: int = typer.Option(None, "--min-rating", "-r", help="Minimum rating"),
+    since: str = typer.Option(None, "--since", help="Since date (YYYY-MM-DD)"),
+    search: str = typer.Option(None, "--search", "-s", help="Search title, takeaways, reaction, creator"),
+    limit: int = typer.Option(50, "--limit", "-n", help="Max results"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """List media log entries with optional filters."""
+    from beacon.media import list_media
+
+    conn = get_connection()
+    entries = list_media(conn, source_type=source_type, tag=tag, min_rating=min_rating, since=since, search=search, limit=limit)
+    conn.close()
+
+    if as_json:
+        _json_out(entries)
+        return
+
+    if not entries:
+        _print("No media entries found.")
+        return
+
+    if HAS_RICH:
+        table = Table(title="Media Log")
+        table.add_column("ID", style="dim")
+        table.add_column("Date")
+        table.add_column("Type")
+        table.add_column("Title")
+        table.add_column("Creator")
+        table.add_column("Rating")
+        table.add_column("Share", style="dim")
+        for e in entries:
+            stars = "⭐" * e["rating"] if e.get("rating") else ""
+            share = "✓" if e.get("team_shareable") else ""
+            table.add_row(
+                str(e["id"]),
+                e.get("date_consumed", "") or "",
+                e.get("source_type", ""),
+                e.get("title", ""),
+                e.get("creator", "") or "",
+                stars,
+                share,
+            )
+        console.print(table)
+    else:
+        for e in entries:
+            share = " [shareable]" if e.get("team_shareable") else ""
+            print(f"{e['id']}: [{e.get('date_consumed', '')}] {e.get('title', '')}{share}")
+
+
+@media_app.command("show")
+def media_show(
+    media_id: int = typer.Argument(..., help="Media entry ID"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Show details for a single media entry."""
+    from beacon.media import get_media
+
+    conn = get_connection()
+    entry = get_media(conn, media_id)
+    conn.close()
+
+    if not entry:
+        if as_json:
+            _json_out({"error": "Media entry not found", "code": 2})
+        else:
+            _print(f"Media entry {media_id} not found.")
+        raise typer.Exit(2)
+
+    if as_json:
+        _json_out(entry)
+        return
+
+    if HAS_RICH:
+        stars = "⭐" * entry["rating"] if entry.get("rating") else "unrated"
+        details = f"**Type:** {entry['source_type']}\n"
+        details += f"**Creator:** {entry.get('creator') or ''}\n"
+        details += f"**Platform:** {entry.get('platform') or ''}\n"
+        details += f"**Date:** {entry.get('date_consumed') or ''}\n"
+        details += f"**Rating:** {stars}\n"
+        if entry.get("url"):
+            details += f"**URL:** {entry['url']}\n"
+        if entry.get("tags"):
+            details += f"**Tags:** {entry['tags']}\n"
+        if entry.get("key_takeaways"):
+            details += f"\n**Key Takeaways:**\n{entry['key_takeaways']}\n"
+        if entry.get("personal_reaction"):
+            details += f"\n**Personal Reaction:**\n{entry['personal_reaction']}\n"
+        if entry.get("team_shareable"):
+            details += "\n**Team Shareable:** Yes\n"
+            if entry.get("share_note"):
+                details += f"**Share Note:** {entry['share_note']}\n"
+        console.print(Panel(details, title=entry["title"]))
+    else:
+        print(f"{entry['title']} ({entry['source_type']})")
+        if entry.get("creator"):
+            print(f"  Creator: {entry['creator']}")
+        if entry.get("key_takeaways"):
+            print(f"  Takeaways: {entry['key_takeaways']}")
+        if entry.get("personal_reaction"):
+            print(f"  Reaction: {entry['personal_reaction']}")
+
+
+@media_app.command("update")
+def media_update(
+    media_id: int = typer.Argument(..., help="Media entry ID"),
+    takeaways: str = typer.Option(None, "--takeaways", help="Update key takeaways"),
+    reaction: str = typer.Option(None, "--reaction", help="Update personal reaction"),
+    rating: int = typer.Option(None, "--rating", "-r", help="Update rating 1-5"),
+    shareable: bool = typer.Option(None, "--shareable", "-s", help="Mark as team-shareable"),
+    share_note: str = typer.Option(None, "--share-note", help="Update share note"),
+    tag: list[str] = typer.Option([], "--tag", help="Replace tags (repeatable)"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Update fields on a media entry."""
+    from beacon.media import update_media
+
+    kwargs = {}
+    if takeaways is not None:
+        kwargs["key_takeaways"] = takeaways
+    if reaction is not None:
+        kwargs["personal_reaction"] = reaction
+    if rating is not None:
+        kwargs["rating"] = rating
+    if shareable is not None:
+        kwargs["team_shareable"] = shareable
+    if share_note is not None:
+        kwargs["share_note"] = share_note
+    if tag:
+        kwargs["tags"] = tag
+
+    if not kwargs:
+        if as_json:
+            _json_out({"error": "No fields to update", "code": 1})
+        else:
+            _print("No fields to update. Use --help to see options.")
+        raise typer.Exit(1)
+
+    conn = get_connection()
+    ok = update_media(conn, media_id, **kwargs)
+    conn.close()
+
+    if not ok:
+        if as_json:
+            _json_out({"error": "Media entry not found", "code": 2})
+        else:
+            _print(f"Media entry {media_id} not found.")
+        raise typer.Exit(2)
+
+    if as_json:
+        _json_out({"id": media_id, "updated": True})
+    else:
+        _stderr(f"Media entry {media_id} updated.")
+
+
+@media_app.command("team-list")
+def media_team_list(
+    source_type: str = typer.Option(None, "--type", "-t", help="Filter by source type"),
+    tag: str = typer.Option(None, "--tag", help="Filter by tag"),
+    min_rating: int = typer.Option(None, "--min-rating", "-r", help="Minimum rating"),
+    since: str = typer.Option(None, "--since", help="Since date (YYYY-MM-DD)"),
+    limit: int = typer.Option(50, "--limit", "-n", help="Max results"),
+    output: str = typer.Option(None, "--output", "-o", help="Write markdown to file"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Export team-shareable media as markdown or JSON for sharing."""
+    from beacon.media import export_team_markdown, get_team_list
+
+    conn = get_connection()
+    entries = get_team_list(conn, source_type=source_type, tag=tag, min_rating=min_rating, since=since, limit=limit)
+    conn.close()
+
+    if as_json:
+        _json_out(entries)
+        return
+
+    md = export_team_markdown(entries)
+
+    if output:
+        Path(output).write_text(md)
+        _stderr(f"Team list written to {output}")
+    else:
+        _print(md)
 
 
 def main():

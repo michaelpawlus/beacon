@@ -125,6 +125,16 @@ Every read/output command supports `--json`. When set:
 | `beacon presence site-projects` | Generate project pages | `--output PATH` |
 | `beacon presence enrich` | Enrichment interview / gap analysis | `--work-id N` `--list-gaps` `--generate-content` |
 
+### Media Sub-commands (`beacon media ...`)
+
+| Command | Description | Key Flags |
+|---------|-------------|-----------|
+| `beacon media add <title>` | Log a video, podcast, article, etc. | `--type TEXT` `--url TEXT` `--creator TEXT` `--platform TEXT` `--date DATE` `--rating N` `--tag TEXT` `--takeaways TEXT` `--reaction TEXT` `--shareable` `--share-note TEXT` `--json` |
+| `beacon media list` | List media entries with filters | `--type TEXT` `--tag TEXT` `--min-rating N` `--since DATE` `--search TEXT` `--limit N` `--json` |
+| `beacon media show <id>` | Show media entry detail | `--json` |
+| `beacon media update <id>` | Update fields on a media entry | `--takeaways TEXT` `--reaction TEXT` `--rating N` `--shareable` `--share-note TEXT` `--tag TEXT` `--json` |
+| `beacon media team-list` | Export team-shareable media as markdown/JSON | `--type TEXT` `--tag TEXT` `--min-rating N` `--since DATE` `--limit N` `--output PATH` `--json` |
+
 ### Config Sub-commands (`beacon config ...`)
 
 | Command | Description | Key Flags |
@@ -175,6 +185,15 @@ beacon application list --status applied --json
 
 # Profile data for resume generation
 beacon profile show --json
+
+# Log a video you watched with reaction
+beacon media add "Andrej Karpathy - Intro to LLMs" --type video --creator "Andrej Karpathy" --platform YouTube --rating 5 --tag ai --tag llm --reaction "Great mental model for how LLMs work" --shareable --share-note "Best intro to LLMs for non-technical folks" --json
+
+# Get team-shareable media list for AI adoption
+beacon media team-list --min-rating 4 --json
+
+# Search your media log
+beacon media list --search "agents" --type video --json
 ```
 
 ## Structured Filtering
@@ -183,12 +202,13 @@ Read commands support composable filters (AND logic):
 
 - `beacon companies --min-score 7 --tier 1 --tools "cursor"` — tier-1 companies scoring 7+ that use Cursor
 - `beacon jobs --min-relevance 8 --status active --company "Vercel" --since 2024-01-01` — high-relevance active jobs at Vercel since a date
+- `beacon media list --type video --min-rating 4 --tag "agents" --since 2026-01-01` — high-rated agent videos since a date
 
 ## Database
 
 - SQLite at `data/beacon.db`
 - Schema in `beacon/db/schema.sql`
-- Key tables: `companies`, `ai_signals`, `leadership_signals`, `tools_adopted`, `score_breakdown`, `job_listings`, `applications`, `application_outcomes`, `work_experiences`, `projects`, `skills`, `education`, `publications_talks`, `content_drafts`, `content_calendar`, `presentations`, `speaker_profile`, `resume_variants`, `automation_log`, `sessions`
+- Key tables: `companies`, `ai_signals`, `leadership_signals`, `tools_adopted`, `score_breakdown`, `job_listings`, `applications`, `application_outcomes`, `work_experiences`, `projects`, `skills`, `education`, `publications_talks`, `content_drafts`, `content_calendar`, `media_log`, `presentations`, `speaker_profile`, `resume_variants`, `automation_log`, `sessions`
 - `beacon init` must be run before first use (creates schema + seeds 38 companies)
 
 ## Optional Dependencies
