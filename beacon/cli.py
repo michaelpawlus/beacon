@@ -712,9 +712,36 @@ def report_jobs(
 @profile_app.command("interview")
 def profile_interview(
     section: str = typer.Option(None, "--section", "-s", help="Interview section: work, projects, skills, education, publications"),
+    data: str = typer.Option(None, "--data", "-d", help="JSON string with profile data (skips interactive prompts)"),
 ):
     """Interactive interview to build your professional profile."""
     from beacon.interview import SECTION_LABELS, run_full_interview
+
+    # Non-interactive path: --data flag or non-TTY stdin
+    if data is not None or not sys.stdin.isatty():
+        from beacon.importer import import_profile_from_dict
+
+        conn = get_connection()
+        try:
+            if data is not None:
+                profile_data = json.loads(data)
+            else:
+                profile_data = json.loads(sys.stdin.read())
+        except json.JSONDecodeError as e:
+            _print(f"Invalid JSON: {e}")
+            conn.close()
+            raise typer.Exit(1)
+
+        counts = import_profile_from_dict(conn, profile_data)
+        errors = counts.pop("errors", [])
+        for key, count in counts.items():
+            _print(f"  {key}: {count} entries imported")
+        if errors:
+            _print(f"  Errors: {len(errors)}")
+            for err in errors:
+                _print(f"    - {err}")
+        conn.close()
+        return
 
     if section and section not in SECTION_LABELS:
         _print(f"Unknown section: {section}. Choose from: {', '.join(SECTION_LABELS.keys())}")

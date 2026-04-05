@@ -35,6 +35,7 @@ class TestBeaconConfigDefaults:
         assert config.desktop_notifications is True
         assert config.log_level == "INFO"
         assert config.log_file == "data/beacon.log"
+        assert config.home_location == ""
 
     def test_custom_values(self):
         config = BeaconConfig(
@@ -113,6 +114,14 @@ class TestTomlRoundTrip:
         assert restored.scan_cadence == "weekly"
         assert restored.log_level == "DEBUG"
 
+    def test_home_location_roundtrip(self):
+        config = BeaconConfig(home_location="Columbus, OH")
+        toml_str = _serialize_config(config)
+        import tomllib
+        data = tomllib.loads(toml_str)
+        restored = _parse_toml_to_config(data)
+        assert restored.home_location == "Columbus, OH"
+
     def test_serialize_defaults_roundtrip(self):
         config = BeaconConfig()
         toml_str = _serialize_config(config)
@@ -190,6 +199,11 @@ class TestKeyValueAccess:
         config = BeaconConfig()
         set_config_value(config, "desktop_notifications", "false")
         assert config.desktop_notifications is False
+
+    def test_set_home_location(self):
+        config = BeaconConfig()
+        set_config_value(config, "home_location", "Columbus, OH")
+        assert config.home_location == "Columbus, OH"
 
     def test_set_unknown_key(self):
         config = BeaconConfig()

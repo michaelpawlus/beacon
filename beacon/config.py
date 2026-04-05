@@ -25,6 +25,7 @@ class BeaconConfig:
     desktop_notifications: bool = True
     log_level: str = "INFO"
     log_file: str = "data/beacon.log"
+    home_location: str = ""
 
     def validate(self) -> list[str]:
         """Return a list of validation errors (empty if valid)."""
@@ -69,6 +70,10 @@ def _serialize_config(config: BeaconConfig) -> str:
     lines.append(f'file = "{config.log_file}"')
     lines.append("")
 
+    lines.append("[scoring]")
+    lines.append(f'home_location = "{config.home_location}"')
+    lines.append("")
+
     return "\n".join(lines)
 
 
@@ -94,6 +99,9 @@ def _parse_toml_to_config(data: dict) -> BeaconConfig:
     logging_cfg = data.get("logging", {})
     config.log_level = logging_cfg.get("level", config.log_level)
     config.log_file = logging_cfg.get("file", config.log_file)
+
+    scoring = data.get("scoring", {})
+    config.home_location = scoring.get("home_location", config.home_location)
 
     return config
 
@@ -128,6 +136,7 @@ _KEY_MAP = {
     "desktop_notifications": "desktop_notifications",
     "log_level": "log_level",
     "log_file": "log_file",
+    "home_location": "home_location",
 }
 
 

@@ -3,6 +3,7 @@
 import sqlite3
 from dataclasses import dataclass
 
+from beacon.config import load_config
 from beacon.db.jobs import mark_stale_jobs, upsert_job
 from beacon.research.job_scoring import compute_job_relevance
 from beacon.scrapers.registry import get_adapter
@@ -43,10 +44,11 @@ def scan_company(conn: sqlite3.Connection, company: sqlite3.Row) -> ScanResult:
 
     result.jobs_found = len(raw_jobs)
     active_urls = set()
+    config = load_config()
 
     for job_data in raw_jobs:
         # Score the job
-        relevance = compute_job_relevance(job_data)
+        relevance = compute_job_relevance(job_data, config=config, company_score=company["ai_first_score"])
 
         # Upsert into DB
         upsert_result = upsert_job(

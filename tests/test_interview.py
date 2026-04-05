@@ -176,3 +176,21 @@ class TestRunFullInterview:
         counts = run_full_interview(console, db)
         assert len(counts) == 5
         assert all(v == 1 for v in counts.values())
+
+    @patch("beacon.interview.Confirm.ask")
+    @patch("beacon.interview.interview_work_experience")
+    def test_eoferror_returns_partial_counts(self, mock_interview, mock_confirm, console, db):
+        mock_interview.return_value = 1
+        mock_confirm.side_effect = EOFError  # simulate non-TTY / piped input
+
+        counts = run_full_interview(console, db, section="work")
+        assert counts == {"work": 1}
+        console.print.assert_any_call("\n[yellow]Interview interrupted.[/yellow]")
+
+    @patch("beacon.interview.interview_work_experience")
+    def test_keyboard_interrupt_returns_partial_counts(self, mock_interview, console, db):
+        mock_interview.side_effect = KeyboardInterrupt
+
+        counts = run_full_interview(console, db, section="work")
+        assert counts == {}
+        console.print.assert_any_call("\n[yellow]Interview interrupted.[/yellow]")

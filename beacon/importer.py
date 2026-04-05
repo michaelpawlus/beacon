@@ -75,9 +75,12 @@ def _validate_publication(data: dict) -> list[str]:
     return errors
 
 
-def _import_json(conn: sqlite3.Connection, path: Path) -> dict:
-    """Import profile data from a JSON file."""
-    data = json.loads(path.read_text())
+def import_profile_from_dict(conn: sqlite3.Connection, data: dict) -> dict:
+    """Import profile data from a dictionary.
+
+    Core import logic that validates and inserts profile sections.
+    Returns counts per section and any validation errors.
+    """
     counts = {}
     errors = []
 
@@ -164,6 +167,12 @@ def _import_json(conn: sqlite3.Connection, path: Path) -> dict:
         counts["errors"] = errors
 
     return counts
+
+
+def _import_json(conn: sqlite3.Connection, path: Path) -> dict:
+    """Import profile data from a JSON file."""
+    data = json.loads(path.read_text())
+    return import_profile_from_dict(conn, data)
 
 
 def import_profile(conn: sqlite3.Connection, file_path: str | Path) -> dict:

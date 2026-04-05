@@ -244,18 +244,27 @@ def run_full_interview(console: Console, conn, section: str | None = None) -> di
     else:
         keys = list(SECTION_FUNCTIONS.keys())
 
-    for key in keys:
-        label = SECTION_LABELS[key]
-        func = getattr(_self, SECTION_FUNCTIONS[key])
-        console.print(f"\n[bold cyan]━━━ {label} ━━━[/bold cyan]\n")
-        count = 0
-        while True:
-            result = func(console, conn)
-            if result is not None:
-                count += 1
-            if not Confirm.ask(f"\nAdd another {label.lower()} entry?", default=False):
-                break
-        counts[key] = count
+    current_key = None
+    current_count = 0
+    try:
+        for key in keys:
+            current_key = key
+            current_count = 0
+            label = SECTION_LABELS[key]
+            func = getattr(_self, SECTION_FUNCTIONS[key])
+            console.print(f"\n[bold cyan]━━━ {label} ━━━[/bold cyan]\n")
+            while True:
+                result = func(console, conn)
+                if result is not None:
+                    current_count += 1
+                if not Confirm.ask(f"\nAdd another {label.lower()} entry?", default=False):
+                    break
+            counts[key] = current_count
+    except (EOFError, KeyboardInterrupt):
+        if current_key is not None and current_count > 0:
+            counts[current_key] = current_count
+        console.print("\n[yellow]Interview interrupted.[/yellow]")
+        return counts
 
     console.print(Panel("[bold green]Interview complete![/bold green]", style="green"))
     for key, count in counts.items():

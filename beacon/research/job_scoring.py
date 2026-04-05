@@ -40,14 +40,17 @@ TARGET_ROLES = [
 ]
 
 # --- Keyword signals ---
-POSITIVE_KEYWORDS = [
+CORE_KEYWORDS = [
     "python", "sql", "dbt", "spark", "airflow", "snowflake", "bigquery",
     "databricks", "redshift", "kafka", "pandas", "scikit", "tensorflow",
     "pytorch", "machine learning", "deep learning", "nlp", "llm",
     "data pipeline", "etl", "elt", "data warehouse", "data lake",
-    "analytics", "statistics", "a/b test", "experimentation",
-    "tableau", "looker", "power bi", "metrics", "dashboard",
+    "statistics", "a/b test", "experimentation",
     "data model", "feature engineering", "mlops",
+]
+
+SUPPORTING_KEYWORDS = [
+    "analytics", "tableau", "looker", "power bi", "metrics", "dashboard",
 ]
 
 NEGATIVE_KEYWORDS = [
@@ -58,25 +61,23 @@ NEGATIVE_KEYWORDS = [
 ]
 
 # --- Location preferences ---
-PREFERRED_LOCATIONS = [
-    "remote",
-    "san francisco",
-    "new york",
-    "los angeles",
-    "seattle",
-    "austin",
-    "denver",
-    "chicago",
-    "boston",
-    "portland",
-    "united states",
-    "us",
-    "usa",
-    "anywhere",
+REMOTE_LOCATIONS = ["remote", "anywhere", "united states", "usa"]
+
+TECH_HUB_LOCATIONS = [
+    "san francisco", "new york", "los angeles", "seattle",
+    "austin", "denver", "chicago", "boston", "portland",
 ]
 
 # --- Seniority targeting ---
-TARGET_SENIORITY = ["senior", "staff", "lead", "principal", "ii", "iii", "mid"]
+SENIORITY_SCORES = {
+    "senior": 10.0,
+    "ii": 10.0,
+    "iii": 10.0,
+    "mid": 10.0,
+    "staff": 7.0,
+    "lead": 5.0,
+    "principal": 4.0,
+}
 JUNIOR_SIGNALS = ["intern", "internship", "entry level", "entry-level", "new grad", "junior", "associate"]
 EXEC_SIGNALS = ["vp", "vice president", "director", "chief", "head of", "c-suite", "cto", "cdo"]
 
@@ -120,27 +121,23 @@ def _score_keywords(description: str) -> tuple[float, list[str]]:
     desc_lower = description.lower()
     reasons = []
 
-    positive_count = 0
-    for kw in POSITIVE_KEYWORDS:
-        if kw in desc_lower:
-            positive_count += 1
+    core_count = sum(1 for kw in CORE_KEYWORDS if kw in desc_lower)
+    supporting_count = sum(1 for kw in SUPPORTING_KEYWORDS if kw in desc_lower)
+    effective_count = core_count * 1.5 + supporting_count * 1.0
 
-    negative_count = 0
-    for kw in NEGATIVE_KEYWORDS:
-        if kw in desc_lower:
-            negative_count += 1
+    negative_count = sum(1 for kw in NEGATIVE_KEYWORDS if kw in desc_lower)
 
-    if positive_count > 0:
-        reasons.append(f"positive_keywords:{positive_count}")
+    if core_count > 0 or supporting_count > 0:
+        reasons.append(f"positive_keywords:{core_count}core+{supporting_count}supporting")
     if negative_count > 0:
         reasons.append(f"negative_keywords:{negative_count}")
 
-    # Scale: 0 keywords = 2, 5+ keywords = 10, with penalty for negatives
-    score = min(2.0 + positive_count * 1.6, 10.0) - negative_count * 2.0
+    # Scale: 0 keywords = 2, ~8 effective = 10, with penalty for negatives
+    score = min(2.0 + effective_count * 1.0, 10.0) - negative_count * 2.0
     return max(score, 0.0), reasons
 
 
-def _score_location(location: str) -> tuple[float, list[str]]:
+def _score_location(location: str, home_location: str = "") -> tuple[float, list[str]]:
     """Score based on location preference. Returns (score, reasons)."""
     if not location:
         return 5.0, ["no_location"]  # neutral when unknown
@@ -148,12 +145,20 @@ def _score_location(location: str) -> tuple[float, list[str]]:
     loc_lower = location.lower()
     reasons = []
 
-    for pref in PREFERRED_LOCATIONS:
+    for pref in REMOTE_LOCATIONS:
         if pref in loc_lower:
             reasons.append(f"preferred_location:{pref}")
             return 10.0, reasons
 
-    # Not in preferred list, but not penalized heavily
+    if home_location and home_location.lower() in loc_lower:
+        reasons.append(f"home_location:{home_location}")
+        return 8.0, reasons
+
+    for hub in TECH_HUB_LOCATIONS:
+        if hub in loc_lower:
+            reasons.append(f"tech_hub:{hub}")
+            return 6.0, reasons
+
     reasons.append("non_preferred_location")
     return 3.0, reasons
 
@@ -173,22 +178,24 @@ def _score_seniority(title: str) -> tuple[float, list[str]]:
             reasons.append(f"exec_role:{signal}")
             return 4.0, reasons
 
-    for signal in TARGET_SENIORITY:
+    for signal, score in SENIORITY_SCORES.items():
         if signal in title_lower:
             reasons.append(f"target_seniority:{signal}")
-            return 10.0, reasons
+            return score, reasons
 
     # No seniority signal — neutral
     reasons.append("no_seniority_signal")
     return 6.0, reasons
 
 
-def compute_job_relevance(job_data: dict) -> dict:
+def compute_job_relevance(job_data: dict, *, config=None, company_score: float | None = None) -> dict:
     """Compute a relevance score for a job listing.
 
     Args:
         job_data: Dict with keys: title, url, location, department,
                   description_text, date_posted
+        config: Optional BeaconConfig for home_location scoring
+        company_score: Optional company AI-first score (0-10) for tie-breaking
 
     Returns:
         Dict with 'score' (0-10), 'reasons' (list of strings),
@@ -198,9 +205,11 @@ def compute_job_relevance(job_data: dict) -> dict:
     description = job_data.get("description_text", "")
     location = job_data.get("location", "")
 
+    home_location = config.home_location if config else ""
+
     title_score, title_reasons = _score_title(title)
     kw_score, kw_reasons = _score_keywords(description)
-    loc_score, loc_reasons = _score_location(location)
+    loc_score, loc_reasons = _score_location(location, home_location=home_location)
     seniority_score, seniority_reasons = _score_seniority(title)
 
     composite = (
@@ -210,10 +219,15 @@ def compute_job_relevance(job_data: dict) -> dict:
         + seniority_score * WEIGHTS["seniority"]
     )
 
+    all_reasons = title_reasons + kw_reasons + loc_reasons + seniority_reasons
+
+    if company_score is not None:
+        multiplier = 0.9 + company_score * 0.02
+        composite = composite * multiplier
+        all_reasons.append(f"company_boost:{company_score:.1f}x{multiplier:.2f}")
+
     # Cap at 10
     composite = min(round(composite, 2), 10.0)
-
-    all_reasons = title_reasons + kw_reasons + loc_reasons + seniority_reasons
 
     return {
         "score": composite,

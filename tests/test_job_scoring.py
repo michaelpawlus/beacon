@@ -78,6 +78,19 @@ class TestKeywordScoring:
         score, _ = _score_keywords("Experience with python required.")
         assert score > 2.0
 
+    def test_core_vs_supporting_weighting(self):
+        # 4 core (python, sql, spark, airflow) + 2 supporting (analytics, dashboard)
+        desc = "python sql spark airflow analytics dashboard"
+        score, reasons = _score_keywords(desc)
+        # effective = 4*1.5 + 2*1.0 = 8.0, score = min(2.0 + 8.0, 10.0) = 10.0
+        assert score == 10.0
+
+    def test_supporting_only(self):
+        desc = "We use tableau, looker, and dashboard tools."
+        score, _ = _score_keywords(desc)
+        # 3 supporting, effective = 3.0, score = 2.0 + 3.0 = 5.0
+        assert score == 5.0
+
 
 class TestLocationScoring:
     def test_remote_preferred(self):
@@ -85,8 +98,30 @@ class TestLocationScoring:
         assert score == 10.0
         assert any("preferred_location" in r for r in reasons)
 
-    def test_san_francisco(self):
-        score, _ = _score_location("San Francisco, CA")
+    def test_san_francisco_tech_hub(self):
+        score, reasons = _score_location("San Francisco, CA")
+        assert score == 6.0
+        assert any("tech_hub" in r for r in reasons)
+
+    def test_us_top_tier(self):
+        score, _ = _score_location("United States")
+        assert score == 10.0
+
+    def test_seattle_tech_hub(self):
+        score, _ = _score_location("Seattle, WA")
+        assert score == 6.0
+
+    def test_home_location_match(self):
+        score, reasons = _score_location("Columbus, OH", home_location="Columbus")
+        assert score == 8.0
+        assert any("home_location" in r for r in reasons)
+
+    def test_home_location_empty(self):
+        score, _ = _score_location("Columbus, OH", home_location="")
+        assert score == 3.0
+
+    def test_remote_beats_home(self):
+        score, _ = _score_location("Remote - Columbus, OH", home_location="Columbus")
         assert score == 10.0
 
     def test_non_preferred_location(self):
@@ -111,6 +146,18 @@ class TestSeniorityScoring:
 
     def test_staff_target(self):
         score, _ = _score_seniority("Staff ML Engineer")
+        assert score == 7.0
+
+    def test_lead_target(self):
+        score, _ = _score_seniority("Lead Data Engineer")
+        assert score == 5.0
+
+    def test_principal_target(self):
+        score, _ = _score_seniority("Principal Engineer")
+        assert score == 4.0
+
+    def test_mid_level_target(self):
+        score, _ = _score_seniority("Data Engineer II")
         assert score == 10.0
 
     def test_intern_low_score(self):
@@ -168,6 +215,28 @@ class TestCompositeScore:
         assert "keyword_score" in result
         assert "location_score" in result
         assert "seniority_score" in result
+
+    def test_company_boost_increases_score(self):
+        job = {"title": "Data Engineer", "description_text": "python sql", "location": "Remote"}
+        base = compute_job_relevance(job)
+        boosted = compute_job_relevance(job, company_score=8.0)
+        assert boosted["score"] > base["score"]
+        assert any("company_boost" in r for r in boosted["reasons"])
+
+    def test_company_score_none_no_boost(self):
+        job = {"title": "Data Engineer", "description_text": "python sql"}
+        result_none = compute_job_relevance(job, company_score=None)
+        result_default = compute_job_relevance(job)
+        assert result_none["score"] == result_default["score"]
+
+    def test_company_boost_capped_at_10(self):
+        job = {
+            "title": "Senior Data Engineer",
+            "description_text": "python sql dbt spark airflow snowflake bigquery databricks",
+            "location": "Remote",
+        }
+        result = compute_job_relevance(job, company_score=10.0)
+        assert result["score"] <= 10.0
 
     def test_reasons_are_strings(self):
         result = compute_job_relevance({"title": "Data Analyst", "description_text": "sql python"})

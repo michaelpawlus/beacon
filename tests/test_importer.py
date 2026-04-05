@@ -25,6 +25,7 @@ from beacon.importer import (
     _validate_work_experience,
     export_profile_json,
     import_profile,
+    import_profile_from_dict,
 )
 
 
@@ -160,6 +161,41 @@ class TestExport:
         assert len(result["skills"]) == 1
         assert len(result["education"]) == 1
         assert len(result["publications_talks"]) == 1
+
+
+class TestImportProfileFromDict:
+    def test_import_full_profile_from_dict(self, db):
+        counts = import_profile_from_dict(db, SAMPLE_PROFILE)
+        assert counts["work_experiences"] == 1
+        assert counts["projects"] == 1
+        assert counts["skills"] == 2
+        assert counts["education"] == 1
+        assert counts["publications_talks"] == 1
+
+        assert len(get_work_experiences(db)) == 1
+        assert len(get_projects(db)) == 1
+        assert len(get_skills(db)) == 2
+        assert len(get_education(db)) == 1
+        assert len(get_publications(db)) == 1
+
+    def test_import_empty_dict(self, db):
+        counts = import_profile_from_dict(db, {})
+        assert counts["work_experiences"] == 0
+        assert counts["skills"] == 0
+        assert "errors" not in counts
+
+    def test_import_dict_with_validation_errors(self, db):
+        data = {"work_experiences": [{"company": "X"}]}  # missing title and start_date
+        counts = import_profile_from_dict(db, data)
+        assert "errors" in counts
+        assert len(counts["errors"]) == 2
+        assert len(get_work_experiences(db)) == 0
+
+    def test_import_partial_dict(self, db):
+        data = {"skills": [{"name": "Python"}, {"name": "SQL"}]}
+        counts = import_profile_from_dict(db, data)
+        assert counts["skills"] == 2
+        assert len(get_skills(db)) == 2
 
 
 class TestRoundtrip:
