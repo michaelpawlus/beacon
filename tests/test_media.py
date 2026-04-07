@@ -8,6 +8,8 @@ import pytest
 from beacon.db.connection import get_connection, init_db
 from beacon.media import (
     add_media,
+    export_for_list,
+    export_list_csv,
     export_team_markdown,
     get_media,
     get_team_list,
@@ -37,6 +39,7 @@ def _add_sample(conn, **overrides):
         "key_takeaways": "Learned something cool",
         "personal_reaction": "Really resonated with me",
     }
+    # Allow passing share_category, why_it_matters, key_quotes through overrides
     defaults.update(overrides)
     return add_media(conn, **defaults)
 
@@ -274,6 +277,107 @@ class TestExportTeamMarkdown:
         assert "- Offline Talk" in md
 
 
+# ── new sharing fields ─────────────────────────────────────────────
+
+
+class TestSharingFields:
+    def test_add_with_sharing_fields(self, db):
+        mid = add_media(
+            db, title="AI Talk", source_type="video",
+            why_it_matters="Shows how AI agents reduce onboarding time",
+            key_quotes=["Agents are the new APIs", "Context is everything"],
+            share_category="AI Adoption",
+            team_shareable=True,
+        )
+        row = db.execute("SELECT * FROM media_log WHERE id = ?", (mid,)).fetchone()
+        assert row["why_it_matters"] == "Shows how AI agents reduce onboarding time"
+        assert json.loads(row["key_quotes"]) == ["Agents are the new APIs", "Context is everything"]
+        assert row["share_category"] == "AI Adoption"
+
+    def test_update_sharing_fields(self, db):
+        mid = _add_sample(db)
+        update_media(db, mid, why_it_matters="Critical for team", key_quotes=["Quote 1"], share_category="Leadership")
+        entry = get_media(db, mid)
+        assert entry["why_it_matters"] == "Critical for team"
+        assert json.loads(entry["key_quotes"]) == ["Quote 1"]
+        assert entry["share_category"] == "Leadership"
+
+    def test_team_list_includes_new_fields(self, db):
+        _add_sample(db, title="Shared", team_shareable=True, why_it_matters="Important", share_category="Technical")
+        result = get_team_list(db)
+        assert result[0]["why_it_matters"] == "Important"
+        assert result[0]["share_category"] == "Technical"
+
+
+# ── export_for_list ────────────────────────────────────────────────
+
+
+class TestExportForList:
+    def test_flat_columns(self, db):
+        _add_sample(
+            db, title="AI Video", team_shareable=True, share_note="Watch this",
+            why_it_matters="Key insight", share_category="AI Adoption",
+            key_takeaways="Transformers explained",
+        )
+        rows = export_for_list(db)
+        assert len(rows) == 1
+        r = rows[0]
+        assert r["Title"] == "AI Video"
+        assert r["WhyItMatters"] == "Key insight"
+        assert r["Category"] == "AI Adoption"
+        assert r["KeyPoints"] == "Transformers explained"
+        assert r["ShareNote"] == "Watch this"
+
+    def test_json_arrays_flattened(self, db):
+        add_media(
+            db, title="Quotable", source_type="video", team_shareable=True,
+            tags=["ai", "agents"], key_quotes=["Quote A", "Quote B"],
+        )
+        rows = export_for_list(db)
+        assert rows[0]["Tags"] == "ai, agents"
+        assert rows[0]["KeyQuotes"] == "Quote A; Quote B"
+
+    def test_only_shareable(self, db):
+        _add_sample(db, title="Private")
+        _add_sample(db, title="Shared", team_shareable=True)
+        rows = export_for_list(db)
+        assert len(rows) == 1
+        assert rows[0]["Title"] == "Shared"
+
+    def test_filter_by_category(self, db):
+        _add_sample(db, title="A", team_shareable=True, share_category="AI Adoption")
+        _add_sample(db, title="B", team_shareable=True, share_category="Leadership")
+        rows = export_for_list(db, category="Leadership")
+        assert len(rows) == 1
+        assert rows[0]["Title"] == "B"
+
+    def test_empty_fields_are_strings(self, db):
+        add_media(db, title="Minimal", source_type="video", team_shareable=True)
+        rows = export_for_list(db)
+        r = rows[0]
+        assert r["Creator"] == ""
+        assert r["Category"] == ""
+        assert r["WhyItMatters"] == ""
+        assert r["KeyQuotes"] == ""
+
+
+# ── export_list_csv ────────────────────────────────────────────────
+
+
+class TestExportListCSV:
+    def test_csv_output(self, db):
+        _add_sample(db, title="CSV Test", team_shareable=True, share_category="Technical")
+        rows = export_for_list(db)
+        csv_str = export_list_csv(rows)
+        assert "Title,URL,Type,Creator,Category" in csv_str
+        assert "CSV Test" in csv_str
+        assert "Technical" in csv_str
+
+    def test_empty_csv(self):
+        csv_str = export_list_csv([])
+        assert csv_str == ""
+
+
 # ── CLI integration ─────────────────────────────────────────────────
 
 
@@ -384,3 +488,112 @@ class TestMediaCLI:
             content = out_file.read_text()
             assert "Team Pick" in content
             assert "Great intro" in content
+
+    def test_add_with_sharing_fields(self, db):
+        from typer.testing import CliRunner
+
+        from beacon.cli import app
+
+        db_path = db.execute("PRAGMA database_list").fetchone()[2]
+
+        with patch("beacon.cli.get_connection", return_value=db):
+            runner = CliRunner()
+            result = runner.invoke(app, [
+                "media", "add", "Agent Talk",
+                "--type", "video",
+                "--shareable",
+                "--why", "Shows practical agent patterns",
+                "--quote", "Agents are the new APIs",
+                "--quote", "Context is everything",
+                "--category", "AI Adoption",
+                "--json",
+            ])
+            assert result.exit_code == 0
+            data = json.loads(result.stdout)
+            mid = data["id"]
+
+        verify = get_connection(db_path)
+        entry = get_media(verify, mid)
+        verify.close()
+        assert entry["why_it_matters"] == "Shows practical agent patterns"
+        assert json.loads(entry["key_quotes"]) == ["Agents are the new APIs", "Context is everything"]
+        assert entry["share_category"] == "AI Adoption"
+
+    def test_update_sharing_fields(self, db):
+        from typer.testing import CliRunner
+
+        from beacon.cli import app
+
+        mid = _add_sample(db, title="To Enrich")
+        db_path = db.execute("PRAGMA database_list").fetchone()[2]
+
+        with patch("beacon.cli.get_connection", return_value=db):
+            runner = CliRunner()
+            result = runner.invoke(app, [
+                "media", "update", str(mid),
+                "--why", "Critical for AI strategy",
+                "--quote", "Key line here",
+                "--category", "Leadership",
+                "--json",
+            ])
+            assert result.exit_code == 0
+
+        verify = get_connection(db_path)
+        entry = get_media(verify, mid)
+        verify.close()
+        assert entry["why_it_matters"] == "Critical for AI strategy"
+        assert json.loads(entry["key_quotes"]) == ["Key line here"]
+        assert entry["share_category"] == "Leadership"
+
+    def test_export_list_json(self, db):
+        from typer.testing import CliRunner
+
+        from beacon.cli import app
+
+        _add_sample(db, title="Export Me", team_shareable=True, share_category="Technical")
+
+        with patch("beacon.cli.get_connection", return_value=db):
+            runner = CliRunner()
+            result = runner.invoke(app, ["media", "export-list", "--json"])
+            assert result.exit_code == 0
+            data = json.loads(result.stdout)
+            assert len(data) >= 1
+            assert data[0]["Title"] == "Export Me"
+            assert data[0]["Category"] == "Technical"
+
+    def test_export_list_csv(self, db, tmp_path):
+        from typer.testing import CliRunner
+
+        from beacon.cli import app
+
+        _add_sample(db, title="CSV Export", team_shareable=True, share_category="AI Adoption")
+        out_file = tmp_path / "export.csv"
+
+        with patch("beacon.cli.get_connection", return_value=db):
+            runner = CliRunner()
+            result = runner.invoke(app, [
+                "media", "export-list",
+                "--format", "csv",
+                "--output", str(out_file),
+            ])
+            assert result.exit_code == 0
+            content = out_file.read_text()
+            assert "Title,URL,Type,Creator,Category" in content
+            assert "CSV Export" in content
+            assert "AI Adoption" in content
+
+    def test_export_list_category_filter(self, db):
+        from typer.testing import CliRunner
+
+        from beacon.cli import app
+
+        _add_sample(db, title="A", team_shareable=True, share_category="AI Adoption")
+        _add_sample(db, title="B", team_shareable=True, share_category="Leadership")
+
+        with patch("beacon.cli.get_connection", return_value=db):
+            runner = CliRunner()
+            result = runner.invoke(app, ["media", "export-list", "--category", "Leadership", "--json"])
+            assert result.exit_code == 0
+            data = json.loads(result.stdout)
+            assert len(data) == 1
+            assert data[0]["Title"] == "B"

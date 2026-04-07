@@ -340,6 +340,9 @@ CREATE TABLE IF NOT EXISTS media_log (
     personal_reaction TEXT,      -- your feelings, philosophy alignment, opinions
     team_shareable BOOLEAN DEFAULT 0,
     share_note TEXT,             -- simplified blurb for team sharing
+    why_it_matters TEXT,         -- why this matters to the team / org
+    key_quotes TEXT,             -- JSON array of notable quotes or lines
+    share_category TEXT,         -- structured category for sharing (e.g. AI Adoption, Leadership)
     content_draft_id INTEGER REFERENCES content_drafts(id) ON DELETE SET NULL,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
@@ -361,6 +364,54 @@ CREATE TABLE IF NOT EXISTS sessions (
     session_date TEXT DEFAULT (date('now')),
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Networking: events attended
+CREATE TABLE IF NOT EXISTS network_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    organizer TEXT,
+    event_type TEXT DEFAULT 'meetup' CHECK(event_type IN ('meetup', 'conference', 'workshop', 'hackathon', 'networking', 'other')),
+    url TEXT,
+    location TEXT,
+    date TEXT,                   -- YYYY-MM-DD
+    description TEXT,
+    attendee_count INTEGER,
+    status TEXT DEFAULT 'upcoming' CHECK(status IN ('upcoming', 'attended', 'cancelled', 'skipped')),
+    tags TEXT,                   -- JSON array
+    notes TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Networking: contacts / people in your professional network
+CREATE TABLE IF NOT EXISTS network_contacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    title TEXT,
+    company TEXT,
+    company_id INTEGER REFERENCES companies(id) ON DELETE SET NULL,
+    email TEXT,
+    linkedin_url TEXT,
+    bio TEXT,
+    interests TEXT,              -- JSON array
+    priority INTEGER DEFAULT 0 CHECK(priority BETWEEN 0 AND 5),
+    notes TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Networking: many-to-many link between contacts and events
+CREATE TABLE IF NOT EXISTS network_contact_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    contact_id INTEGER NOT NULL REFERENCES network_contacts(id) ON DELETE CASCADE,
+    event_id INTEGER NOT NULL REFERENCES network_events(id) ON DELETE CASCADE,
+    topics_discussed TEXT,
+    follow_up TEXT,
+    followed_up BOOLEAN DEFAULT 0,
+    notes TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(contact_id, event_id)
 );
 
 -- Indexes
@@ -395,3 +446,10 @@ CREATE INDEX IF NOT EXISTS idx_media_log_source_type ON media_log(source_type);
 CREATE INDEX IF NOT EXISTS idx_media_log_team_shareable ON media_log(team_shareable);
 CREATE INDEX IF NOT EXISTS idx_media_log_date ON media_log(date_consumed DESC);
 CREATE INDEX IF NOT EXISTS idx_media_log_rating ON media_log(rating DESC);
+CREATE INDEX IF NOT EXISTS idx_network_events_date ON network_events(date DESC);
+CREATE INDEX IF NOT EXISTS idx_network_events_status ON network_events(status);
+CREATE INDEX IF NOT EXISTS idx_network_contacts_company ON network_contacts(company);
+CREATE INDEX IF NOT EXISTS idx_network_contacts_company_id ON network_contacts(company_id);
+CREATE INDEX IF NOT EXISTS idx_network_contacts_priority ON network_contacts(priority DESC);
+CREATE INDEX IF NOT EXISTS idx_network_ce_contact ON network_contact_events(contact_id);
+CREATE INDEX IF NOT EXISTS idx_network_ce_event ON network_contact_events(event_id);

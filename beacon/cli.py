@@ -43,6 +43,7 @@ config_app = typer.Typer(help="Configuration management")
 automation_app = typer.Typer(help="Automation and scheduling")
 session_app = typer.Typer(help="Claude Code session logging")
 media_app = typer.Typer(help="Media log — track videos, podcasts, articles")
+network_app = typer.Typer(help="Networking — events and professional contacts")
 app.add_typer(job_app, name="job")
 app.add_typer(report_app, name="report")
 app.add_typer(profile_app, name="profile")
@@ -52,6 +53,7 @@ app.add_typer(config_app, name="config")
 app.add_typer(automation_app, name="automation")
 app.add_typer(session_app, name="session")
 app.add_typer(media_app, name="media")
+app.add_typer(network_app, name="network")
 console = Console() if HAS_RICH else None
 
 
@@ -2735,6 +2737,9 @@ def media_add(
     reaction: str = typer.Option(None, "--reaction", help="Personal reaction / feelings"),
     shareable: bool = typer.Option(False, "--shareable", "-s", help="Mark as team-shareable"),
     share_note: str = typer.Option(None, "--share-note", help="Simplified note for team sharing"),
+    why_it_matters: str = typer.Option(None, "--why", help="Why this matters to the team / org"),
+    quote: list[str] = typer.Option([], "--quote", "-q", help="Key quotes or lines (repeatable)"),
+    category: str = typer.Option(None, "--category", help="Share category (e.g. AI Adoption, Leadership)"),
     as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """Log a video, podcast, article, or other media you consumed."""
@@ -2755,6 +2760,9 @@ def media_add(
         personal_reaction=reaction,
         team_shareable=shareable,
         share_note=share_note,
+        why_it_matters=why_it_matters,
+        key_quotes=quote or None,
+        share_category=category,
     )
     conn.close()
 
@@ -2856,6 +2864,12 @@ def media_show(
             details += f"\n**Key Takeaways:**\n{entry['key_takeaways']}\n"
         if entry.get("personal_reaction"):
             details += f"\n**Personal Reaction:**\n{entry['personal_reaction']}\n"
+        if entry.get("why_it_matters"):
+            details += f"\n**Why It Matters:**\n{entry['why_it_matters']}\n"
+        if entry.get("key_quotes"):
+            details += f"\n**Key Quotes:**\n{entry['key_quotes']}\n"
+        if entry.get("share_category"):
+            details += f"**Category:** {entry['share_category']}\n"
         if entry.get("team_shareable"):
             details += "\n**Team Shareable:** Yes\n"
             if entry.get("share_note"):
@@ -2879,6 +2893,9 @@ def media_update(
     rating: int = typer.Option(None, "--rating", "-r", help="Update rating 1-5"),
     shareable: bool = typer.Option(None, "--shareable", "-s", help="Mark as team-shareable"),
     share_note: str = typer.Option(None, "--share-note", help="Update share note"),
+    why_it_matters: str = typer.Option(None, "--why", help="Update why it matters"),
+    quote: list[str] = typer.Option([], "--quote", "-q", help="Replace key quotes (repeatable)"),
+    category: str = typer.Option(None, "--category", help="Update share category"),
     tag: list[str] = typer.Option([], "--tag", help="Replace tags (repeatable)"),
     as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
@@ -2896,6 +2913,12 @@ def media_update(
         kwargs["team_shareable"] = shareable
     if share_note is not None:
         kwargs["share_note"] = share_note
+    if why_it_matters is not None:
+        kwargs["why_it_matters"] = why_it_matters
+    if quote:
+        kwargs["key_quotes"] = quote
+    if category is not None:
+        kwargs["share_category"] = category
     if tag:
         kwargs["tags"] = tag
 
@@ -2951,6 +2974,440 @@ def media_team_list(
         _stderr(f"Team list written to {output}")
     else:
         _print(md)
+
+
+@media_app.command("export-list")
+def media_export_list(
+    source_type: str = typer.Option(None, "--type", "-t", help="Filter by source type"),
+    tag: str = typer.Option(None, "--tag", help="Filter by tag"),
+    min_rating: int = typer.Option(None, "--min-rating", "-r", help="Minimum rating"),
+    since: str = typer.Option(None, "--since", help="Since date (YYYY-MM-DD)"),
+    category: str = typer.Option(None, "--category", "-c", help="Filter by share category"),
+    limit: int = typer.Option(50, "--limit", "-n", help="Max results"),
+    fmt: str = typer.Option("json", "--format", "-f", help="Output format: json or csv"),
+    output: str = typer.Option(None, "--output", "-o", help="Write to file"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON (same as --format json)"),
+):
+    """Export team-shareable media for Microsoft Lists / Power Automate.
+
+    Outputs flat rows with columns: Title, URL, Type, Creator, Category,
+    WhyItMatters, KeyPoints, KeyQuotes, Rating, Date, Tags, ShareNote.
+    """
+    from beacon.media import export_for_list, export_list_csv
+
+    conn = get_connection()
+    entries = export_for_list(conn, source_type=source_type, tag=tag, min_rating=min_rating, since=since, category=category, limit=limit)
+    conn.close()
+
+    if as_json or fmt == "json":
+        content = json.dumps(entries, default=str, indent=2)
+    else:
+        content = export_list_csv(entries)
+
+    if output:
+        Path(output).write_text(content)
+        _stderr(f"Exported {len(entries)} entries to {output}")
+    else:
+        print(content)
+
+
+# ── Network commands ───────────────────────────────────────────────
+
+
+@network_app.command("add-event")
+def network_add_event(
+    name: str = typer.Argument(..., help="Event name"),
+    organizer: str = typer.Option(None, "--organizer", "-o", help="Organizer or group name"),
+    event_type: str = typer.Option("meetup", "--type", "-t", help="Type: meetup, conference, workshop, hackathon, networking, other"),
+    url: str = typer.Option(None, "--url", "-u", help="Event URL"),
+    location: str = typer.Option(None, "--location", "-l", help="Location"),
+    date: str = typer.Option(None, "--date", "-d", help="Date (YYYY-MM-DD)"),
+    description: str = typer.Option(None, "--description", help="Description"),
+    attendee_count: int = typer.Option(None, "--attendees", help="Approximate attendee count"),
+    status: str = typer.Option("upcoming", "--status", "-s", help="Status: upcoming, attended, cancelled, skipped"),
+    tag: list[str] = typer.Option([], "--tag", help="Tags (repeatable)"),
+    notes: str = typer.Option(None, "--notes", "-n", help="Notes"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Log a networking event (meetup, conference, etc.)."""
+    from beacon.network import add_event
+
+    conn = get_connection()
+    event_id = add_event(
+        conn, name=name, organizer=organizer, event_type=event_type,
+        url=url, location=location, date=date, description=description,
+        attendee_count=attendee_count, status=status, tags=tag or None, notes=notes,
+    )
+    conn.close()
+
+    result = {"id": event_id, "name": name, "event_type": event_type, "status": status}
+    if as_json:
+        _json_out(result)
+    else:
+        _stderr(f"Event logged (id={event_id}): {name}")
+
+
+@network_app.command("events")
+def network_events(
+    status: str = typer.Option(None, "--status", "-s", help="Filter by status"),
+    event_type: str = typer.Option(None, "--type", "-t", help="Filter by event type"),
+    since: str = typer.Option(None, "--since", help="Since date (YYYY-MM-DD)"),
+    search: str = typer.Option(None, "--search", help="Search name, organizer, description"),
+    limit: int = typer.Option(50, "--limit", "-n", help="Max results"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """List networking events with optional filters."""
+    from beacon.network import list_events
+
+    conn = get_connection()
+    events = list_events(conn, status=status, event_type=event_type, since=since, search=search, limit=limit)
+    conn.close()
+
+    if as_json:
+        _json_out(events)
+        return
+
+    if not events:
+        _print("No events found.")
+        return
+
+    if HAS_RICH:
+        table = Table(title="Network Events")
+        table.add_column("ID", style="dim")
+        table.add_column("Date")
+        table.add_column("Type")
+        table.add_column("Name")
+        table.add_column("Organizer")
+        table.add_column("Status")
+        for e in events:
+            table.add_row(
+                str(e["id"]),
+                e.get("date", "") or "",
+                e.get("event_type", ""),
+                e.get("name", ""),
+                e.get("organizer", "") or "",
+                e.get("status", ""),
+            )
+        console.print(table)
+    else:
+        for e in events:
+            print(f"{e['id']}: [{e.get('date', '')}] {e.get('name', '')} ({e.get('status', '')})")
+
+
+@network_app.command("event")
+def network_event_show(
+    event_id: int = typer.Argument(..., help="Event ID"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Show event details and linked contacts."""
+    from beacon.network import get_event, get_event_contacts
+
+    conn = get_connection()
+    event = get_event(conn, event_id)
+    if not event:
+        conn.close()
+        if as_json:
+            _json_out({"error": "Event not found", "code": 2})
+        else:
+            _print(f"Event {event_id} not found.")
+        raise typer.Exit(2)
+
+    contacts = get_event_contacts(conn, event_id)
+    conn.close()
+
+    if as_json:
+        event["contacts"] = contacts
+        _json_out(event)
+        return
+
+    if HAS_RICH:
+        details = f"**Type:** {event['event_type']}\n"
+        details += f"**Organizer:** {event.get('organizer') or ''}\n"
+        details += f"**Date:** {event.get('date') or ''}\n"
+        details += f"**Location:** {event.get('location') or ''}\n"
+        details += f"**Status:** {event['status']}\n"
+        if event.get("url"):
+            details += f"**URL:** {event['url']}\n"
+        if event.get("attendee_count"):
+            details += f"**Attendees:** ~{event['attendee_count']}\n"
+        if event.get("tags"):
+            details += f"**Tags:** {event['tags']}\n"
+        if event.get("description"):
+            details += f"\n{event['description']}\n"
+        if event.get("notes"):
+            details += f"\n**Notes:** {event['notes']}\n"
+        console.print(Panel(details, title=event["name"]))
+
+        if contacts:
+            ct = Table(title="Contacts at this event")
+            ct.add_column("ID", style="dim")
+            ct.add_column("Name")
+            ct.add_column("Title")
+            ct.add_column("Company")
+            ct.add_column("Priority")
+            ct.add_column("Follow-up", style="dim")
+            for c in contacts:
+                prio = "★" * c.get("priority", 0) if c.get("priority") else ""
+                fu = "✓" if c.get("followed_up") else (c.get("follow_up") or "")
+                ct.add_row(
+                    str(c["id"]), c["name"], c.get("title") or "", c.get("company") or "", prio, fu,
+                )
+            console.print(ct)
+        else:
+            _print("No contacts linked to this event yet.")
+    else:
+        print(f"{event['name']} ({event['event_type']}) — {event['status']}")
+        if event.get("organizer"):
+            print(f"  Organizer: {event['organizer']}")
+        for c in contacts:
+            print(f"  - {c['name']} ({c.get('title', '')}, {c.get('company', '')})")
+
+
+@network_app.command("add-contact")
+def network_add_contact(
+    name: str = typer.Argument(..., help="Contact's full name"),
+    title: str = typer.Option(None, "--title", "-t", help="Job title"),
+    company: str = typer.Option(None, "--company", "-c", help="Company name"),
+    email: str = typer.Option(None, "--email", "-e", help="Email address"),
+    linkedin: str = typer.Option(None, "--linkedin", help="LinkedIn profile URL"),
+    bio: str = typer.Option(None, "--bio", "-b", help="Short bio"),
+    interest: list[str] = typer.Option([], "--interest", "-i", help="Interests (repeatable)"),
+    priority: int = typer.Option(0, "--priority", "-p", help="Priority 0-5 (5 = highest)"),
+    notes: str = typer.Option(None, "--notes", "-n", help="Notes"),
+    event_id: int = typer.Option(None, "--event", help="Link to event ID"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Add a professional contact."""
+    from beacon.network import add_contact, link_contact_event
+
+    conn = get_connection()
+
+    # Auto-match company to beacon DB
+    company_id = None
+    if company:
+        row = conn.execute("SELECT id FROM companies WHERE name LIKE ?", (f"%{company}%",)).fetchone()
+        if row:
+            company_id = row["id"]
+
+    contact_id = add_contact(
+        conn, name=name, title=title, company=company, company_id=company_id,
+        email=email, linkedin_url=linkedin, bio=bio,
+        interests=interest or None, priority=priority, notes=notes,
+    )
+
+    if event_id is not None:
+        link_contact_event(conn, contact_id, event_id)
+
+    conn.close()
+
+    result = {"id": contact_id, "name": name}
+    if company_id:
+        result["beacon_company_id"] = company_id
+    if event_id is not None:
+        result["linked_event_id"] = event_id
+    if as_json:
+        _json_out(result)
+    else:
+        extra = f" (matched beacon company #{company_id})" if company_id else ""
+        _stderr(f"Contact added (id={contact_id}): {name}{extra}")
+
+
+@network_app.command("contacts")
+def network_contacts(
+    company: str = typer.Option(None, "--company", "-c", help="Filter by company name"),
+    event_id: int = typer.Option(None, "--event", help="Filter by event ID"),
+    min_priority: int = typer.Option(None, "--min-priority", "-p", help="Minimum priority"),
+    search: str = typer.Option(None, "--search", "-s", help="Search name, title, company, bio"),
+    limit: int = typer.Option(50, "--limit", "-n", help="Max results"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """List contacts with optional filters."""
+    from beacon.network import list_contacts
+
+    conn = get_connection()
+    contacts = list_contacts(conn, company=company, event_id=event_id, min_priority=min_priority, search=search, limit=limit)
+    conn.close()
+
+    if as_json:
+        _json_out(contacts)
+        return
+
+    if not contacts:
+        _print("No contacts found.")
+        return
+
+    if HAS_RICH:
+        table = Table(title="Network Contacts")
+        table.add_column("ID", style="dim")
+        table.add_column("Name")
+        table.add_column("Title")
+        table.add_column("Company")
+        table.add_column("Priority")
+        for c in contacts:
+            prio = "★" * c.get("priority", 0) if c.get("priority") else ""
+            table.add_row(
+                str(c["id"]), c["name"], c.get("title") or "", c.get("company") or "", prio,
+            )
+        console.print(table)
+    else:
+        for c in contacts:
+            print(f"{c['id']}: {c['name']} — {c.get('title', '')} @ {c.get('company', '')}")
+
+
+@network_app.command("contact")
+def network_contact_show(
+    contact_id: int = typer.Argument(..., help="Contact ID"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Show contact details and event history."""
+    from beacon.network import get_contact, get_contact_events
+
+    conn = get_connection()
+    contact = get_contact(conn, contact_id)
+    if not contact:
+        conn.close()
+        if as_json:
+            _json_out({"error": "Contact not found", "code": 2})
+        else:
+            _print(f"Contact {contact_id} not found.")
+        raise typer.Exit(2)
+
+    events = get_contact_events(conn, contact_id)
+
+    # Enrich with beacon company info
+    beacon_company = None
+    if contact.get("company_id"):
+        row = conn.execute("SELECT name, ai_first_score, tier FROM companies WHERE id = ?", (contact["company_id"],)).fetchone()
+        if row:
+            beacon_company = dict(row)
+    conn.close()
+
+    if as_json:
+        contact["events"] = events
+        if beacon_company:
+            contact["beacon_company"] = beacon_company
+        _json_out(contact)
+        return
+
+    if HAS_RICH:
+        details = f"**Title:** {contact.get('title') or ''}\n"
+        details += f"**Company:** {contact.get('company') or ''}\n"
+        if beacon_company:
+            details += f"**Beacon Score:** {beacon_company['ai_first_score']} (Tier {beacon_company['tier']})\n"
+        if contact.get("email"):
+            details += f"**Email:** {contact['email']}\n"
+        if contact.get("linkedin_url"):
+            details += f"**LinkedIn:** {contact['linkedin_url']}\n"
+        if contact.get("priority"):
+            details += f"**Priority:** {'★' * contact['priority']}\n"
+        if contact.get("interests"):
+            details += f"**Interests:** {contact['interests']}\n"
+        if contact.get("bio"):
+            details += f"\n{contact['bio']}\n"
+        if contact.get("notes"):
+            details += f"\n**Notes:** {contact['notes']}\n"
+        console.print(Panel(details, title=contact["name"]))
+
+        if events:
+            et = Table(title="Events attended")
+            et.add_column("ID", style="dim")
+            et.add_column("Date")
+            et.add_column("Event")
+            et.add_column("Topics")
+            et.add_column("Follow-up")
+            for e in events:
+                fu = "✓ Done" if e.get("followed_up") else (e.get("follow_up") or "")
+                et.add_row(
+                    str(e["id"]), e.get("date", "") or "", e["name"],
+                    e.get("topics_discussed") or "", fu,
+                )
+            console.print(et)
+    else:
+        print(f"{contact['name']} — {contact.get('title', '')} @ {contact.get('company', '')}")
+        for e in events:
+            print(f"  Event: {e['name']} ({e.get('date', '')})")
+
+
+@network_app.command("link")
+def network_link(
+    contact_id: int = typer.Argument(..., help="Contact ID"),
+    event_id: int = typer.Argument(..., help="Event ID"),
+    topics: str = typer.Option(None, "--topics", "-t", help="Topics discussed"),
+    follow_up: str = typer.Option(None, "--follow-up", "-f", help="Follow-up action"),
+    notes: str = typer.Option(None, "--notes", "-n", help="Notes"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Link a contact to an event (records that they were there)."""
+    from beacon.network import link_contact_event
+
+    conn = get_connection()
+    link_id = link_contact_event(conn, contact_id, event_id, topics_discussed=topics, follow_up=follow_up, notes=notes)
+    conn.close()
+
+    result = {"id": link_id, "contact_id": contact_id, "event_id": event_id}
+    if as_json:
+        _json_out(result)
+    else:
+        _stderr(f"Linked contact {contact_id} to event {event_id}.")
+
+
+@network_app.command("prep")
+def network_prep(
+    event_id: int = typer.Argument(..., help="Event ID to prepare for"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Prepare for an event: contacts, company cross-references, talking points."""
+    from beacon.network import prep_event
+
+    conn = get_connection()
+    prep = prep_event(conn, event_id)
+    conn.close()
+
+    if not prep:
+        if as_json:
+            _json_out({"error": "Event not found", "code": 2})
+        else:
+            _print(f"Event {event_id} not found.")
+        raise typer.Exit(2)
+
+    if as_json:
+        _json_out(prep)
+        return
+
+    event = prep["event"]
+    contacts = prep["contacts"]
+
+    if HAS_RICH:
+        header = f"**{event['name']}** — {event.get('date', 'TBD')}\n"
+        header += f"Organizer: {event.get('organizer') or 'N/A'} | Location: {event.get('location') or 'N/A'}\n"
+        header += f"Contacts: {prep['total_contacts']} | Beacon matches: {prep['beacon_matches']}"
+        console.print(Panel(header, title="Event Prep"))
+
+        if contacts:
+            ct = Table(title="Who to talk to")
+            ct.add_column("Priority", justify="center")
+            ct.add_column("Name")
+            ct.add_column("Title")
+            ct.add_column("Company")
+            ct.add_column("Beacon", style="dim")
+            ct.add_column("Interests")
+            for c in contacts:
+                prio = "★" * c.get("priority", 0) if c.get("priority") else "—"
+                beacon_info = ""
+                if c.get("beacon_company"):
+                    bc = c["beacon_company"]
+                    beacon_info = f"Score {bc['ai_first_score']} T{bc['tier']}"
+                interests = c.get("interests") or ""
+                ct.add_row(prio, c["name"], c.get("title") or "", c.get("company") or "", beacon_info, interests)
+            console.print(ct)
+        else:
+            _print("No contacts linked to this event yet. Use [bold]beacon network add-contact --event {event_id}[/bold] to add people.")
+    else:
+        print(f"Prep: {event['name']} ({event.get('date', 'TBD')})")
+        print(f"  Contacts: {prep['total_contacts']}, Beacon matches: {prep['beacon_matches']}")
+        for c in contacts:
+            bc = f" [Beacon: {c['beacon_company']['ai_first_score']}]" if c.get("beacon_company") else ""
+            print(f"  - {c['name']} ({c.get('title', '')}, {c.get('company', '')}){bc}")
 
 
 def main():

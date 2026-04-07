@@ -18,14 +18,17 @@ def add_media(
     personal_reaction: str | None = None,
     team_shareable: bool = False,
     share_note: str | None = None,
+    why_it_matters: str | None = None,
+    key_quotes: list[str] | None = None,
+    share_category: str | None = None,
 ) -> int:
     """Insert a media log entry and return its ID."""
     cur = conn.execute(
         """INSERT INTO media_log
            (title, url, source_type, creator, platform, date_consumed,
             rating, tags, key_takeaways, personal_reaction,
-            team_shareable, share_note)
-           VALUES (?, ?, ?, ?, ?, COALESCE(?, date('now')), ?, ?, ?, ?, ?, ?)""",
+            team_shareable, share_note, why_it_matters, key_quotes, share_category)
+           VALUES (?, ?, ?, ?, ?, COALESCE(?, date('now')), ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             title,
             url,
@@ -39,6 +42,9 @@ def add_media(
             personal_reaction,
             1 if team_shareable else 0,
             share_note,
+            why_it_matters,
+            json.dumps(key_quotes) if key_quotes else None,
+            share_category,
         ),
     )
     conn.commit()
@@ -103,12 +109,13 @@ def update_media(
     allowed = {
         "title", "url", "source_type", "creator", "platform", "date_consumed",
         "rating", "tags", "key_takeaways", "personal_reaction",
-        "team_shareable", "share_note", "content_draft_id",
+        "team_shareable", "share_note", "why_it_matters", "key_quotes",
+        "share_category", "content_draft_id",
     }
     updates = {}
     for k, v in kwargs.items():
         if k in allowed and v is not None:
-            if k == "tags" and isinstance(v, list):
+            if k in ("tags", "key_quotes") and isinstance(v, list):
                 updates[k] = json.dumps(v)
             elif k == "team_shareable":
                 updates[k] = 1 if v else 0
@@ -161,9 +168,84 @@ def get_team_list(
             "rating": e["rating"],
             "tags": e["tags"],
             "share_note": e["share_note"],
+            "why_it_matters": e.get("why_it_matters"),
+            "key_quotes": e.get("key_quotes"),
+            "share_category": e.get("share_category"),
         }
         for e in entries
     ]
+
+
+def _flatten_json_field(value: str | None, separator: str = "; ") -> str:
+    """Parse a JSON array string and join into a flat string."""
+    if not value:
+        return ""
+    try:
+        items = json.loads(value)
+        if isinstance(items, list):
+            return separator.join(str(i) for i in items)
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return value
+
+
+def export_for_list(
+    conn: sqlite3.Connection,
+    source_type: str | None = None,
+    tag: str | None = None,
+    min_rating: int | None = None,
+    since: str | None = None,
+    category: str | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    """Export team-shareable media as flat dicts for Microsoft Lists / Power Automate.
+
+    All JSON arrays are flattened to semicolon-separated strings so each row
+    maps directly to a List column with no nested data.
+    """
+    entries = list_media(
+        conn,
+        source_type=source_type,
+        tag=tag,
+        min_rating=min_rating,
+        team_only=True,
+        since=since,
+        limit=limit,
+    )
+    if category:
+        entries = [e for e in entries if (e.get("share_category") or "").lower() == category.lower()]
+
+    return [
+        {
+            "Title": e["title"],
+            "URL": e.get("url") or "",
+            "Type": e["source_type"],
+            "Creator": e.get("creator") or "",
+            "Category": e.get("share_category") or "",
+            "WhyItMatters": e.get("why_it_matters") or "",
+            "KeyPoints": e.get("key_takeaways") or "",
+            "KeyQuotes": _flatten_json_field(e.get("key_quotes")),
+            "Rating": e.get("rating") or "",
+            "Date": e.get("date_consumed") or "",
+            "Tags": _flatten_json_field(e.get("tags"), ", "),
+            "ShareNote": e.get("share_note") or "",
+        }
+        for e in entries
+    ]
+
+
+def export_list_csv(entries: list[dict]) -> str:
+    """Render export_for_list entries as CSV string."""
+    import csv
+    import io
+
+    if not entries:
+        return ""
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=list(entries[0].keys()))
+    writer.writeheader()
+    writer.writerows(entries)
+    return output.getvalue()
 
 
 def export_team_markdown(entries: list[dict]) -> str:

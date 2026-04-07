@@ -129,11 +129,25 @@ Every read/output command supports `--json`. When set:
 
 | Command | Description | Key Flags |
 |---------|-------------|-----------|
-| `beacon media add <title>` | Log a video, podcast, article, etc. | `--type TEXT` `--url TEXT` `--creator TEXT` `--platform TEXT` `--date DATE` `--rating N` `--tag TEXT` `--takeaways TEXT` `--reaction TEXT` `--shareable` `--share-note TEXT` `--json` |
+| `beacon media add <title>` | Log a video, podcast, article, etc. | `--type TEXT` `--url TEXT` `--creator TEXT` `--platform TEXT` `--date DATE` `--rating N` `--tag TEXT` `--takeaways TEXT` `--reaction TEXT` `--shareable` `--share-note TEXT` `--why TEXT` `--quote TEXT` `--category TEXT` `--json` |
 | `beacon media list` | List media entries with filters | `--type TEXT` `--tag TEXT` `--min-rating N` `--since DATE` `--search TEXT` `--limit N` `--json` |
 | `beacon media show <id>` | Show media entry detail | `--json` |
-| `beacon media update <id>` | Update fields on a media entry | `--takeaways TEXT` `--reaction TEXT` `--rating N` `--shareable` `--share-note TEXT` `--tag TEXT` `--json` |
+| `beacon media update <id>` | Update fields on a media entry | `--takeaways TEXT` `--reaction TEXT` `--rating N` `--shareable` `--share-note TEXT` `--why TEXT` `--quote TEXT` `--category TEXT` `--tag TEXT` `--json` |
 | `beacon media team-list` | Export team-shareable media as markdown/JSON | `--type TEXT` `--tag TEXT` `--min-rating N` `--since DATE` `--limit N` `--output PATH` `--json` |
+| `beacon media export-list` | Export for Microsoft Lists / Power Automate | `--type TEXT` `--tag TEXT` `--min-rating N` `--since DATE` `--category TEXT` `--limit N` `--format TEXT` `--output PATH` `--json` |
+
+### Network Sub-commands (`beacon network ...`)
+
+| Command | Description | Key Flags |
+|---------|-------------|-----------|
+| `beacon network add-event <name>` | Log a networking event | `--organizer TEXT` `--type TEXT` `--url TEXT` `--location TEXT` `--date DATE` `--status TEXT` `--tag TEXT` `--json` |
+| `beacon network events` | List events with filters | `--status TEXT` `--type TEXT` `--since DATE` `--search TEXT` `--limit N` `--json` |
+| `beacon network event <id>` | Show event detail + contacts | `--json` |
+| `beacon network add-contact <name>` | Add a professional contact | `--title TEXT` `--company TEXT` `--email TEXT` `--linkedin TEXT` `--interest TEXT` `--priority N` `--event N` `--json` |
+| `beacon network contacts` | List contacts with filters | `--company TEXT` `--event N` `--min-priority N` `--search TEXT` `--limit N` `--json` |
+| `beacon network contact <id>` | Show contact detail + event history | `--json` |
+| `beacon network link <contact_id> <event_id>` | Link contact to event | `--topics TEXT` `--follow-up TEXT` `--notes TEXT` `--json` |
+| `beacon network prep <event_id>` | Prep for event: contacts, beacon cross-refs | `--json` |
 
 ### Config Sub-commands (`beacon config ...`)
 
@@ -186,14 +200,30 @@ beacon application list --status applied --json
 # Profile data for resume generation
 beacon profile show --json
 
-# Log a video you watched with reaction
-beacon media add "Andrej Karpathy - Intro to LLMs" --type video --creator "Andrej Karpathy" --platform YouTube --rating 5 --tag ai --tag llm --reaction "Great mental model for how LLMs work" --shareable --share-note "Best intro to LLMs for non-technical folks" --json
+# Log a video you watched with reaction and sharing fields
+beacon media add "Andrej Karpathy - Intro to LLMs" --type video --creator "Andrej Karpathy" --platform YouTube --rating 5 --tag ai --tag llm --reaction "Great mental model for how LLMs work" --shareable --share-note "Best intro to LLMs for non-technical folks" --why "Gives the team a shared mental model for how LLMs actually work" --quote "The LLM is dreaming the next token" --category "AI Adoption" --json
 
 # Get team-shareable media list for AI adoption
 beacon media team-list --min-rating 4 --json
 
+# Export for Microsoft Lists / Power Automate (JSON or CSV)
+beacon media export-list --format csv --output export.csv
+beacon media export-list --category "AI Adoption" --json
+
 # Search your media log
 beacon media list --search "agents" --type video --json
+
+# Log a networking event
+beacon network add-event "AI Tinkerers Columbus" --organizer "AI Tinkerers" --date 2026-04-15 --location "Columbus, OH" --status attended --json
+
+# Add a contact met at an event
+beacon network add-contact "Jane Smith" --title "ML Engineer" --company "Anthropic" --event 1 --priority 4 --interest "agents" --json
+
+# Prep for an upcoming event (cross-references beacon companies)
+beacon network prep 1 --json
+
+# List contacts at a specific event
+beacon network contacts --event 1 --json
 ```
 
 ## Structured Filtering
@@ -203,12 +233,14 @@ Read commands support composable filters (AND logic):
 - `beacon companies --min-score 7 --tier 1 --tools "cursor"` — tier-1 companies scoring 7+ that use Cursor
 - `beacon jobs --min-relevance 8 --status active --company "Vercel" --since 2024-01-01` — high-relevance active jobs at Vercel since a date
 - `beacon media list --type video --min-rating 4 --tag "agents" --since 2026-01-01` — high-rated agent videos since a date
+- `beacon network contacts --company "Anthropic" --min-priority 3 --event 1` — high-priority Anthropic contacts from event 1
+- `beacon network events --status upcoming --type meetup --since 2026-04-01` — upcoming meetups since a date
 
 ## Database
 
 - SQLite at `data/beacon.db`
 - Schema in `beacon/db/schema.sql`
-- Key tables: `companies`, `ai_signals`, `leadership_signals`, `tools_adopted`, `score_breakdown`, `job_listings`, `applications`, `application_outcomes`, `work_experiences`, `projects`, `skills`, `education`, `publications_talks`, `content_drafts`, `content_calendar`, `media_log`, `presentations`, `speaker_profile`, `resume_variants`, `automation_log`, `sessions`
+- Key tables: `companies`, `ai_signals`, `leadership_signals`, `tools_adopted`, `score_breakdown`, `job_listings`, `applications`, `application_outcomes`, `work_experiences`, `projects`, `skills`, `education`, `publications_talks`, `content_drafts`, `content_calendar`, `media_log`, `network_events`, `network_contacts`, `network_contact_events`, `presentations`, `speaker_profile`, `resume_variants`, `automation_log`, `sessions`
 - `beacon init` must be run before first use (creates schema + seeds 38 companies)
 
 ## Optional Dependencies
