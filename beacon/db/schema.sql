@@ -169,7 +169,7 @@ CREATE TABLE IF NOT EXISTS publications_talks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
     pub_type TEXT NOT NULL CHECK(pub_type IN (
-        'blog_post', 'paper', 'talk', 'panel', 'podcast', 'workshop', 'open_source'
+        'blog_post', 'paper', 'talk', 'panel', 'podcast', 'workshop', 'open_source', 'book'
     )),
     venue TEXT,
     url TEXT,

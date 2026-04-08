@@ -194,7 +194,7 @@ def interview_publication(console: Console, conn) -> int | None:
         return None
 
     pub_type = Prompt.ask(
-        "Type (blog_post/paper/talk/panel/podcast/workshop/open_source)",
+        "Type (blog_post/paper/talk/panel/podcast/workshop/open_source/book)",
         default="blog_post",
     )
     venue = Prompt.ask("Venue/publication (optional)", default="")

@@ -21,7 +21,7 @@ from beacon.db.profile import (
 )
 
 
-VALID_PUB_TYPES = {"blog_post", "paper", "talk", "panel", "podcast", "workshop", "open_source"}
+VALID_PUB_TYPES = {"blog_post", "paper", "talk", "panel", "podcast", "workshop", "open_source", "book"}
 VALID_PROFICIENCIES = {"beginner", "intermediate", "advanced", "expert"}
 
 
