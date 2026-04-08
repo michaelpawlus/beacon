@@ -719,18 +719,47 @@ def profile_interview(
     """Interactive interview to build your professional profile."""
     from beacon.interview import SECTION_LABELS, run_full_interview
 
-    # Non-interactive path: --data flag or non-TTY stdin
-    if data is not None or not sys.stdin.isatty():
+    # Non-interactive path: --data flag with JSON string
+    if data is not None:
         from beacon.importer import import_profile_from_dict
 
         conn = get_connection()
         try:
-            if data is not None:
-                profile_data = json.loads(data)
-            else:
-                profile_data = json.loads(sys.stdin.read())
+            profile_data = json.loads(data)
         except json.JSONDecodeError as e:
             _print(f"Invalid JSON: {e}")
+            conn.close()
+            raise typer.Exit(1)
+
+        counts = import_profile_from_dict(conn, profile_data)
+        errors = counts.pop("errors", [])
+        for key, count in counts.items():
+            _print(f"  {key}: {count} entries imported")
+        if errors:
+            _print(f"  Errors: {len(errors)}")
+            for err in errors:
+                _print(f"    - {err}")
+        conn.close()
+        return
+
+    # Non-interactive path: piped JSON via stdin
+    if not sys.stdin.isatty():
+        stdin_data = sys.stdin.read().strip()
+        if not stdin_data:
+            _print("Error: profile interview requires an interactive terminal or JSON input.")
+            _print("  Interactive:  beacon profile interview [--section education]")
+            _print("  JSON flag:    beacon profile interview --data '{\"education\": [...]}'")
+            _print("  Piped JSON:   echo '{...}' | beacon profile interview")
+            _print("  File import:  beacon profile import profile.json")
+            raise typer.Exit(1)
+
+        from beacon.importer import import_profile_from_dict
+
+        conn = get_connection()
+        try:
+            profile_data = json.loads(stdin_data)
+        except json.JSONDecodeError as e:
+            _print(f"Invalid JSON from stdin: {e}")
             conn.close()
             raise typer.Exit(1)
 
@@ -751,8 +780,13 @@ def profile_interview(
 
     conn = get_connection()
     interview_console = Console() if HAS_RICH else Console()
-    run_full_interview(interview_console, conn, section=section)
-    conn.close()
+    try:
+        run_full_interview(interview_console, conn, section=section)
+    except (EOFError, KeyboardInterrupt, OSError):
+        _print("\nInterview interrupted — terminal may not support interactive prompts.")
+        _print("Tip: use 'beacon profile interview --data' for non-interactive mode.")
+    finally:
+        conn.close()
 
 
 @profile_app.command("import")

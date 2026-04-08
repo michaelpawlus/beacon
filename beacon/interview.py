@@ -260,7 +260,7 @@ def run_full_interview(console: Console, conn, section: str | None = None) -> di
                 if not Confirm.ask(f"\nAdd another {label.lower()} entry?", default=False):
                     break
             counts[key] = current_count
-    except (EOFError, KeyboardInterrupt):
+    except (EOFError, KeyboardInterrupt, OSError):
         if current_key is not None and current_count > 0:
             counts[current_key] = current_count
         console.print("\n[yellow]Interview interrupted.[/yellow]")

@@ -3,7 +3,9 @@
 from unittest.mock import MagicMock, call, patch
 
 import pytest
+from typer.testing import CliRunner
 
+from beacon.cli import app
 from beacon.db.connection import get_connection, init_db
 from beacon.interview import (
     _validate_date,
@@ -14,6 +16,8 @@ from beacon.interview import (
     interview_work_experience,
     run_full_interview,
 )
+
+runner = CliRunner()
 
 
 @pytest.fixture
@@ -194,3 +198,83 @@ class TestRunFullInterview:
         counts = run_full_interview(console, db, section="work")
         assert counts == {}
         console.print.assert_any_call("\n[yellow]Interview interrupted.[/yellow]")
+
+    @patch("beacon.interview.Confirm.ask")
+    @patch("beacon.interview.interview_work_experience")
+    def test_oserror_returns_partial_counts(self, mock_interview, mock_confirm, console, db):
+        """OSError from broken terminal/WSL2 is handled gracefully."""
+        mock_interview.return_value = 1
+        mock_confirm.side_effect = OSError("broken pipe")
+
+        counts = run_full_interview(console, db, section="work")
+        assert counts == {"work": 1}
+        console.print.assert_any_call("\n[yellow]Interview interrupted.[/yellow]")
+
+    @patch("beacon.interview.interview_work_experience")
+    def test_oserror_during_prompt_returns_empty_counts(self, mock_interview, console, db):
+        """OSError on the first prompt returns empty counts gracefully."""
+        mock_interview.side_effect = OSError("terminal not available")
+
+        counts = run_full_interview(console, db, section="work")
+        assert counts == {}
+        console.print.assert_any_call("\n[yellow]Interview interrupted.[/yellow]")
+
+
+class TestInterviewCLINonTTY:
+    """CLI-level tests for non-TTY / non-interactive interview behavior."""
+
+    @pytest.fixture
+    def cli_db(self, tmp_path):
+        db_path = tmp_path / "test_beacon.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+        yield conn
+        conn.close()
+
+    @patch("beacon.cli.get_connection")
+    def test_empty_stdin_shows_helpful_error(self, mock_conn, cli_db):
+        """Empty non-TTY stdin shows usage hints instead of 'Invalid JSON'."""
+        mock_conn.return_value = cli_db
+
+        # CliRunner provides a non-TTY stdin with empty input by default
+        result = runner.invoke(app, ["profile", "interview", "--section", "education"], input="")
+        assert result.exit_code == 1
+        assert "interactive terminal or JSON input" in result.output
+
+    @patch("beacon.cli.get_connection")
+    def test_invalid_json_stdin_shows_error(self, mock_conn, cli_db):
+        """Non-TTY stdin with invalid JSON shows JSON error."""
+        mock_conn.return_value = cli_db
+
+        result = runner.invoke(app, ["profile", "interview"], input="not json")
+        assert result.exit_code == 1
+        assert "Invalid JSON from stdin" in result.output
+
+    @patch("beacon.cli.get_connection")
+    def test_piped_json_imports_profile(self, mock_conn, cli_db):
+        """Piped valid JSON via stdin imports profile data."""
+        mock_conn.return_value = cli_db
+        json_input = '{"education": [{"institution": "Test U", "degree": "MS"}]}'
+
+        result = runner.invoke(app, ["profile", "interview"], input=json_input)
+        assert result.exit_code == 0
+        assert "education: 1 entries imported" in result.output
+
+    @patch("beacon.cli.get_connection")
+    def test_data_flag_imports_profile(self, mock_conn, cli_db):
+        """--data flag with valid JSON imports profile data."""
+        mock_conn.return_value = cli_db
+        data = '{"education": [{"institution": "Test U", "degree": "MS"}]}'
+
+        result = runner.invoke(app, ["profile", "interview", "--data", data])
+        assert result.exit_code == 0
+        assert "education: 1 entries imported" in result.output
+
+    @patch("beacon.cli.get_connection")
+    def test_data_flag_invalid_json_shows_error(self, mock_conn, cli_db):
+        """--data flag with invalid JSON shows error."""
+        mock_conn.return_value = cli_db
+
+        result = runner.invoke(app, ["profile", "interview", "--data", "bad json"])
+        assert result.exit_code == 1
+        assert "Invalid JSON" in result.output
