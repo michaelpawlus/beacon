@@ -22,8 +22,21 @@ def init_db(db_path: Path | str | None = None) -> None:
     conn = get_connection(db_path)
     schema = SCHEMA_PATH.read_text()
     conn.executescript(schema)
+    _run_migrations(conn)
     conn.commit()
     conn.close()
+
+
+def _run_migrations(conn: sqlite3.Connection) -> None:
+    """Run safe ALTER TABLE migrations for columns added after initial release."""
+    _add_column_if_missing(conn, "job_listings", "highlights", "TEXT")
+
+
+def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str, col_type: str) -> None:
+    """Add a column to a table if it doesn't already exist."""
+    cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
 
 
 def reset_db(db_path: Path | str | None = None) -> None:

@@ -179,3 +179,70 @@ class TestJobStatus:
 
     def test_get_nonexistent_job(self, db):
         assert get_job_by_id(db, 99999) is None
+
+
+class TestLocationFilter:
+    def test_filter_remote(self, db):
+        cid = _insert_company(db)
+        upsert_job(db, cid, "Remote Job", url="https://x.com/r", location="Remote - US")
+        upsert_job(db, cid, "SF Job", url="https://x.com/sf", location="San Francisco, CA")
+        jobs = get_jobs(db, location="remote")
+        assert len(jobs) == 1
+        assert jobs[0]["title"] == "Remote Job"
+
+    def test_filter_united_states_as_remote(self, db):
+        cid = _insert_company(db)
+        upsert_job(db, cid, "US Job", url="https://x.com/us", location="United States")
+        upsert_job(db, cid, "India Job", url="https://x.com/in", location="Bangalore, India")
+        jobs = get_jobs(db, location="remote")
+        assert len(jobs) == 1
+        assert jobs[0]["title"] == "US Job"
+
+    def test_filter_by_city(self, db):
+        cid = _insert_company(db)
+        upsert_job(db, cid, "Columbus Job", url="https://x.com/c", location="Columbus, OH")
+        upsert_job(db, cid, "NYC Job", url="https://x.com/n", location="New York, NY")
+        jobs = get_jobs(db, location="columbus")
+        assert len(jobs) == 1
+        assert jobs[0]["title"] == "Columbus Job"
+
+    def test_location_filter_case_insensitive(self, db):
+        cid = _insert_company(db)
+        upsert_job(db, cid, "Job", url="https://x.com/1", location="REMOTE")
+        jobs = get_jobs(db, location="remote")
+        assert len(jobs) == 1
+
+    def test_location_filter_with_new_jobs_since(self, db):
+        cid = _insert_company(db)
+        upsert_job(db, cid, "Remote New", url="https://x.com/rn", location="Remote", relevance_score=7.0)
+        upsert_job(db, cid, "SF New", url="https://x.com/sfn", location="San Francisco", relevance_score=7.0)
+        jobs = get_new_jobs_since(db, "2020-01-01", location="remote")
+        assert len(jobs) == 1
+        assert jobs[0]["title"] == "Remote New"
+
+
+class TestHighlightsStorage:
+    def test_upsert_stores_highlights(self, db):
+        cid = _insert_company(db)
+        hl = {"salary_min": 150000, "salary_max": 250000, "ai_tools": ["Claude", "LLMs"]}
+        result = upsert_job(db, cid, "AI Engineer", url="https://x.com/ai", highlights=hl)
+        row = db.execute("SELECT highlights FROM job_listings WHERE id = ?", (result["id"],)).fetchone()
+        parsed = json.loads(row["highlights"])
+        assert parsed["salary_min"] == 150000
+        assert "Claude" in parsed["ai_tools"]
+
+    def test_upsert_updates_highlights(self, db):
+        cid = _insert_company(db)
+        hl1 = {"salary_min": 100000, "salary_max": 200000}
+        r = upsert_job(db, cid, "Job", url="https://x.com/1", highlights=hl1)
+        hl2 = {"salary_min": 120000, "salary_max": 220000, "ai_tools": ["PyTorch"]}
+        upsert_job(db, cid, "Job", url="https://x.com/1", highlights=hl2)
+        row = db.execute("SELECT highlights FROM job_listings WHERE id = ?", (r["id"],)).fetchone()
+        parsed = json.loads(row["highlights"])
+        assert parsed["salary_min"] == 120000
+
+    def test_highlights_none_by_default(self, db):
+        cid = _insert_company(db)
+        r = upsert_job(db, cid, "Job", url="https://x.com/1")
+        row = db.execute("SELECT highlights FROM job_listings WHERE id = ?", (r["id"],)).fetchone()
+        assert row["highlights"] is None

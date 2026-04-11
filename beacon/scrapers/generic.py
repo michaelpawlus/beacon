@@ -119,7 +119,7 @@ class GenericScraperAdapter(BaseAdapter):
                 data.get("employmentUnit", {}).get("name", "")
                 if isinstance(data.get("employmentUnit"), dict) else ""
             ),
-            "description_text": description[:5000],
+            "description_text": description,
             "date_posted": date_posted or None,
         }
 

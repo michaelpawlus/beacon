@@ -470,6 +470,7 @@ def jobs(
     company: str = typer.Option(None, "--company", "-c", help="Company name filter"),
     status: str = typer.Option(None, "--status", "-s", help="Filter by status (active, closed, applied, ignored)"),
     min_relevance: float = typer.Option(None, "--min-relevance", "-r", help="Minimum relevance score"),
+    location: str = typer.Option(None, "--location", help="Location filter (e.g. 'remote', 'columbus')"),
     since: str = typer.Option(None, "--since", help="Show jobs first seen after date (YYYY-MM-DD)"),
     new: bool = typer.Option(False, "--new", help="Show only jobs from last 24 hours"),
     limit: int = typer.Option(50, "--limit", "-l", help="Max results"),
@@ -482,7 +483,7 @@ def jobs(
 
     if new or since:
         since_dt = since or (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-        rows = get_new_jobs_since(conn, since_dt, min_relevance)
+        rows = get_new_jobs_since(conn, since_dt, min_relevance, location=location)
     else:
         company_id = None
         if company:
@@ -496,7 +497,7 @@ def jobs(
                     _print(f"No company found matching '{company}'")
                 conn.close()
                 raise typer.Exit(2)
-        rows = get_jobs(conn, company_id=company_id, status=status, min_relevance=min_relevance, limit=limit)
+        rows = get_jobs(conn, company_id=company_id, status=status, min_relevance=min_relevance, location=location, limit=limit)
 
     conn.close()
 
@@ -509,24 +510,43 @@ def jobs(
         return
 
     if HAS_RICH:
+        # Pre-compute salary info to decide whether to show the column
+        salary_map = {}
+        for r in rows:
+            salary = ""
+            if r["highlights"]:
+                try:
+                    hl = json.loads(r["highlights"])
+                    if hl.get("salary_min") and hl.get("salary_max"):
+                        salary = f"${hl['salary_min']:,}-${hl['salary_max']:,}"
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            salary_map[r["id"]] = salary
+        has_salary = any(salary_map.values())
+
         table = Table(title="Job Listings")
         table.add_column("ID", style="dim", width=5)
         table.add_column("Company", style="bold")
         table.add_column("Title")
         table.add_column("Relevance", justify="right")
         table.add_column("Location", width=20)
+        if has_salary:
+            table.add_column("Salary", no_wrap=True)
         table.add_column("Status")
 
         for r in rows:
             score_color = "green" if r["relevance_score"] >= 7 else "yellow" if r["relevance_score"] >= 4 else "dim"
-            table.add_row(
+            row_data = [
                 str(r["id"]),
                 r["company_name"],
                 r["title"][:50],
                 f"[{score_color}]{r['relevance_score']:.1f}[/{score_color}]",
                 (r["location"] or "")[:20],
-                r["status"],
-            )
+            ]
+            if has_salary:
+                row_data.append(salary_map[r["id"]])
+            row_data.append(r["status"])
+            table.add_row(*row_data)
         console.print(table)
     else:
         for r in rows:
@@ -559,8 +579,21 @@ def job_show(
                 data["match_reasons"] = json.loads(data["match_reasons"])
             except (json.JSONDecodeError, TypeError):
                 pass
+        if data.get("highlights"):
+            try:
+                data["highlights"] = json.loads(data["highlights"])
+            except (json.JSONDecodeError, TypeError):
+                pass
         _json_out(data)
         return
+
+    # Parse highlights for display
+    hl = {}
+    if job["highlights"]:
+        try:
+            hl = json.loads(job["highlights"])
+        except (json.JSONDecodeError, TypeError):
+            pass
 
     if HAS_RICH:
         console.print(Panel(f"[bold]{job['title']}[/bold] at {job['company_name']}", style="blue"))
@@ -573,6 +606,16 @@ def job_show(
         console.print(f"  Last seen: {job['date_last_seen']}")
         if job["url"]:
             console.print(f"  URL: {job['url']}")
+        if hl:
+            console.print("\n[bold]Highlights:[/bold]")
+            if hl.get("salary_raw"):
+                console.print(f"  Salary: [green]{hl['salary_raw']}[/green]")
+            if hl.get("ai_tools"):
+                console.print(f"  AI Tools: {', '.join(hl['ai_tools'])}")
+            if hl.get("experience_years"):
+                console.print(f"  Experience: {hl['experience_years']} years")
+            if hl.get("key_requirements"):
+                console.print(f"  Key Tech: {', '.join(hl['key_requirements'])}")
         if job["match_reasons"]:
             reasons = json.loads(job["match_reasons"])
             console.print("\n[bold]Match Reasons:[/bold]")
@@ -585,6 +628,10 @@ def job_show(
         print(f"\n{job['title']} at {job['company_name']}")
         print(f"  Relevance: {job['relevance_score']:.1f}/10 | Status: {job['status']}")
         print(f"  Location: {job['location'] or 'N/A'} | Department: {job['department'] or 'N/A'}")
+        if hl.get("salary_raw"):
+            print(f"  Salary: {hl['salary_raw']}")
+        if hl.get("ai_tools"):
+            print(f"  AI Tools: {', '.join(hl['ai_tools'])}")
         if job["url"]:
             print(f"  URL: {job['url']}")
 

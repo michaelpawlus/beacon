@@ -57,7 +57,7 @@ class GreenhouseAdapter(BaseAdapter):
             "url": raw.get("absolute_url", ""),
             "location": location,
             "department": department,
-            "description_text": description_text[:5000],
+            "description_text": description_text,
             "date_posted": date_posted,
         }
 

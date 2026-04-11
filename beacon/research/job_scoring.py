@@ -138,7 +138,12 @@ def _score_keywords(description: str) -> tuple[float, list[str]]:
 
 
 def _score_location(location: str, home_location: str = "") -> tuple[float, list[str]]:
-    """Score based on location preference. Returns (score, reasons)."""
+    """Score based on location preference. Returns (score, reasons).
+
+    Remote/distributed roles score highest (10.0). Home location matches
+    score 8.0. All other in-person-only locations (including tech hubs)
+    score 3.0 since they require relocation.
+    """
     if not location:
         return 5.0, ["no_location"]  # neutral when unknown
 
@@ -153,11 +158,6 @@ def _score_location(location: str, home_location: str = "") -> tuple[float, list
     if home_location and home_location.lower() in loc_lower:
         reasons.append(f"home_location:{home_location}")
         return 8.0, reasons
-
-    for hub in TECH_HUB_LOCATIONS:
-        if hub in loc_lower:
-            reasons.append(f"tech_hub:{hub}")
-            return 6.0, reasons
 
     reasons.append("non_preferred_location")
     return 3.0, reasons

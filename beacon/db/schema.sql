@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS job_listings (
     status TEXT DEFAULT 'active' CHECK(status IN ('active', 'closed', 'applied', 'ignored')),
     relevance_score REAL DEFAULT 0,
     match_reasons TEXT,  -- JSON array of reasons
+    highlights TEXT,  -- JSON: salary, AI tools, experience extracted from description
     created_at TEXT DEFAULT (datetime('now')),
     UNIQUE(company_id, title, url)
 );

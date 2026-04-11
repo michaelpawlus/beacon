@@ -98,18 +98,18 @@ class TestLocationScoring:
         assert score == 10.0
         assert any("preferred_location" in r for r in reasons)
 
-    def test_san_francisco_tech_hub(self):
+    def test_san_francisco_not_accessible(self):
         score, reasons = _score_location("San Francisco, CA")
-        assert score == 6.0
-        assert any("tech_hub" in r for r in reasons)
+        assert score == 3.0
+        assert "non_preferred_location" in reasons
 
     def test_us_top_tier(self):
         score, _ = _score_location("United States")
         assert score == 10.0
 
-    def test_seattle_tech_hub(self):
+    def test_seattle_not_accessible(self):
         score, _ = _score_location("Seattle, WA")
-        assert score == 6.0
+        assert score == 3.0
 
     def test_home_location_match(self):
         score, reasons = _score_location("Columbus, OH", home_location="Columbus")

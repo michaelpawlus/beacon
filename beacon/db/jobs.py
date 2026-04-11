@@ -15,9 +15,11 @@ def upsert_job(
     date_posted: str | None = None,
     relevance_score: float = 0.0,
     match_reasons: list[str] | None = None,
+    highlights: dict | None = None,
 ) -> dict:
     """Insert or update a job listing. Returns {"id": ..., "is_new": bool}."""
     reasons_json = json.dumps(match_reasons) if match_reasons else None
+    highlights_json = json.dumps(highlights) if highlights else None
 
     # Try to find existing job by unique constraint (company_id, title, url)
     existing = conn.execute(
@@ -35,9 +37,11 @@ def upsert_job(
                    date_posted = COALESCE(?, date_posted),
                    relevance_score = ?,
                    match_reasons = COALESCE(?, match_reasons),
+                   highlights = COALESCE(?, highlights),
                    status = CASE WHEN status = 'closed' THEN 'active' ELSE status END
                WHERE id = ?""",
-            (location, department, description_text, date_posted, relevance_score, reasons_json, existing["id"]),
+            (location, department, description_text, date_posted,
+             relevance_score, reasons_json, highlights_json, existing["id"]),
         )
         conn.commit()
         return {"id": existing["id"], "is_new": False}
@@ -45,10 +49,10 @@ def upsert_job(
         cursor = conn.execute(
             """INSERT INTO job_listings
                (company_id, title, url, location, department, description_text,
-                date_posted, relevance_score, match_reasons)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                date_posted, relevance_score, match_reasons, highlights)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (company_id, title, url, location, department,
-             description_text, date_posted, relevance_score, reasons_json),
+             description_text, date_posted, relevance_score, reasons_json, highlights_json),
         )
         conn.commit()
         return {"id": cursor.lastrowid, "is_new": True}
@@ -75,11 +79,31 @@ def mark_stale_jobs(conn: sqlite3.Connection, company_id: int, active_urls: set[
     return stale_count
 
 
+REMOTE_TERMS = ["remote", "anywhere", "united states", "usa", "distributed"]
+
+
+def _build_location_filter(location: str) -> tuple[str, list[str]]:
+    """Build SQL clauses for location filtering.
+
+    Handles 'remote' as a special case matching common remote indicators.
+    Other values do a LIKE match on the location field.
+    Returns (sql_fragment, params).
+    """
+    loc_lower = location.strip().lower()
+    if loc_lower == "remote":
+        clauses = " OR ".join("LOWER(j.location) LIKE ?" for _ in REMOTE_TERMS)
+        params = [f"%{term}%" for term in REMOTE_TERMS]
+        return f"({clauses})", params
+    else:
+        return "(LOWER(j.location) LIKE ?)", [f"%{loc_lower}%"]
+
+
 def get_jobs(
     conn: sqlite3.Connection,
     company_id: int | None = None,
     status: str | None = None,
     min_relevance: float | None = None,
+    location: str | None = None,
     limit: int = 50,
 ) -> list[sqlite3.Row]:
     """Get job listings with optional filters."""
@@ -95,6 +119,10 @@ def get_jobs(
     if min_relevance is not None:
         query += " AND j.relevance_score >= ?"
         params.append(min_relevance)
+    if location:
+        loc_sql, loc_params = _build_location_filter(location)
+        query += f" AND {loc_sql}"
+        params.extend(loc_params)
 
     query += " ORDER BY j.relevance_score DESC, j.date_first_seen DESC LIMIT ?"
     params.append(limit)
@@ -104,6 +132,7 @@ def get_jobs(
 
 def get_new_jobs_since(
     conn: sqlite3.Connection, since_date: str, min_relevance: float | None = None,
+    location: str | None = None,
 ) -> list[sqlite3.Row]:
     """Get jobs first seen since a given date."""
     query = """SELECT j.*, c.name as company_name
@@ -114,6 +143,10 @@ def get_new_jobs_since(
     if min_relevance is not None:
         query += " AND j.relevance_score >= ?"
         params.append(min_relevance)
+    if location:
+        loc_sql, loc_params = _build_location_filter(location)
+        query += f" AND {loc_sql}"
+        params.extend(loc_params)
 
     query += " ORDER BY j.relevance_score DESC"
     return conn.execute(query, params).fetchall()
