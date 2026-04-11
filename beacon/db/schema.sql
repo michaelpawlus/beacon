@@ -108,6 +108,20 @@ CREATE TABLE IF NOT EXISTS job_listings (
     UNIQUE(company_id, title, url)
 );
 
+-- Skill gap tracking
+CREATE TABLE IF NOT EXISTS skill_gaps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    skill_name TEXT NOT NULL,
+    category TEXT,
+    demand_count INTEGER DEFAULT 0,
+    example_jobs TEXT,  -- JSON array of {id, title, company}
+    status TEXT DEFAULT 'open' CHECK(status IN ('open', 'learning', 'closed')),
+    priority INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(skill_name)
+);
+
 -- Phase 3: Professional Profile & Application Materials
 
 -- Work experience history

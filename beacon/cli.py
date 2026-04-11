@@ -44,6 +44,7 @@ automation_app = typer.Typer(help="Automation and scheduling")
 session_app = typer.Typer(help="Claude Code session logging")
 media_app = typer.Typer(help="Media log — track videos, podcasts, articles")
 network_app = typer.Typer(help="Networking — events and professional contacts")
+gaps_app = typer.Typer(help="Skill gap tracking and analysis")
 app.add_typer(job_app, name="job")
 app.add_typer(report_app, name="report")
 app.add_typer(profile_app, name="profile")
@@ -54,6 +55,7 @@ app.add_typer(automation_app, name="automation")
 app.add_typer(session_app, name="session")
 app.add_typer(media_app, name="media")
 app.add_typer(network_app, name="network")
+app.add_typer(gaps_app, name="gaps")
 console = Console() if HAS_RICH else None
 
 
@@ -3489,6 +3491,159 @@ def network_prep(
         for c in contacts:
             bc = f" [Beacon: {c['beacon_company']['ai_first_score']}]" if c.get("beacon_company") else ""
             print(f"  - {c['name']} ({c.get('title', '')}, {c.get('company', '')}){bc}")
+
+
+# --- Gaps sub-commands ---
+
+
+@gaps_app.command("analyze")
+def gaps_analyze(
+    min_relevance: float = typer.Option(7.0, "--min-relevance", "-r", help="Minimum job relevance to analyze"),
+    location: str = typer.Option(None, "--location", help="Location filter (e.g. 'remote')"),
+    limit: int = typer.Option(20, "--limit", "-l", help="Max jobs to analyze"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Analyze skill gaps against top job matches."""
+    from beacon.research.skill_gaps import analyze_skill_gaps, upsert_skill_gaps
+
+    conn = get_connection()
+    result = analyze_skill_gaps(conn, min_relevance=min_relevance, location=location, limit=limit)
+    upsert_skill_gaps(conn, result["gaps"])
+    conn.close()
+
+    if as_json:
+        _json_out(result)
+        return
+
+    if HAS_RICH:
+        console.print(f"\n[bold]Analyzed {result['total_jobs_analyzed']} jobs[/bold]\n")
+
+        if result["gaps"]:
+            gt = Table(title=f"Skill Gaps ({len(result['gaps'])})")
+            gt.add_column("Skill", style="bold")
+            gt.add_column("Category")
+            gt.add_column("Demand", justify="right")
+            gt.add_column("Example Jobs")
+            for g in result["gaps"]:
+                examples = ", ".join(j["company"] for j in g["example_jobs"][:2])
+                gt.add_row(g["skill"], g["category"], str(g["demand_count"]), examples)
+            console.print(gt)
+
+        if result["strengths"]:
+            st = Table(title=f"\nStrengths ({len(result['strengths'])})")
+            st.add_column("Skill", style="bold green")
+            st.add_column("Proficiency")
+            st.add_column("Demand", justify="right")
+            for s in result["strengths"]:
+                st.add_row(s["skill"], s["proficiency"] or "—", str(s["demand_count"]))
+            console.print(st)
+    else:
+        print(f"Analyzed {result['total_jobs_analyzed']} jobs")
+        print(f"\nGaps ({len(result['gaps'])}):")
+        for g in result["gaps"]:
+            print(f"  - {g['skill']} ({g['category']}) — {g['demand_count']} jobs")
+        print(f"\nStrengths ({len(result['strengths'])}):")
+        for s in result["strengths"]:
+            print(f"  + {s['skill']} ({s['proficiency']}) — {s['demand_count']} jobs")
+
+
+@gaps_app.command("list")
+def gaps_list(
+    status: str = typer.Option(None, "--status", "-s", help="Filter by status (open, learning, closed)"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """List tracked skill gaps ranked by demand."""
+    from beacon.research.skill_gaps import get_skill_gaps
+
+    conn = get_connection()
+    rows = get_skill_gaps(conn, status=status)
+    conn.close()
+
+    if as_json:
+        data = []
+        for r in rows:
+            d = dict(r)
+            if d.get("example_jobs"):
+                try:
+                    d["example_jobs"] = json.loads(d["example_jobs"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            data.append(d)
+        _json_out(data)
+        return
+
+    if not rows:
+        _print("No skill gaps tracked. Run [bold]beacon gaps analyze[/bold] first.")
+        return
+
+    if HAS_RICH:
+        table = Table(title="Skill Gaps")
+        table.add_column("Skill", style="bold")
+        table.add_column("Category")
+        table.add_column("Demand", justify="right")
+        table.add_column("Status")
+        for r in rows:
+            status_color = {"open": "red", "learning": "yellow", "closed": "green"}.get(r["status"], "dim")
+            table.add_row(r["skill_name"], r["category"] or "—", str(r["demand_count"]),
+                          f"[{status_color}]{r['status']}[/{status_color}]")
+        console.print(table)
+    else:
+        for r in rows:
+            print(f"  [{r['status']}] {r['skill_name']} ({r['category']}) — {r['demand_count']} jobs")
+
+
+@gaps_app.command("update")
+def gaps_update(
+    skill: str = typer.Argument(..., help="Skill name to update"),
+    status: str = typer.Option(..., "--status", "-s", help="New status (open, learning, closed)"),
+):
+    """Update a skill gap's status."""
+    from beacon.research.skill_gaps import update_skill_gap_status
+
+    if status not in ("open", "learning", "closed"):
+        _print(f"Invalid status: {status}. Must be open, learning, or closed.")
+        raise typer.Exit(1)
+
+    conn = get_connection()
+    found = update_skill_gap_status(conn, skill, status)
+    conn.close()
+
+    if found:
+        _print(f"Updated '{skill}' → {status}")
+    else:
+        _print(f"No skill gap found matching '{skill}'")
+        raise typer.Exit(2)
+
+
+@gaps_app.command("export")
+def gaps_export(
+    limit: int = typer.Option(10, "--limit", "-l", help="Max gaps to export"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Export open skill gaps as quests for code-daily."""
+    from beacon.research.skill_gaps import export_gaps_as_quests
+
+    conn = get_connection()
+    quests = export_gaps_as_quests(conn, limit=limit)
+    conn.close()
+
+    if as_json:
+        _json_out(quests)
+        return
+
+    if not quests:
+        _print("No open skill gaps to export.")
+        return
+
+    if HAS_RICH:
+        for q in quests:
+            console.print(f"  [bold]{q['title']}[/bold]")
+            console.print(f"    {q['description']}")
+            console.print(f"    source_ref: {q['source_ref']}\n")
+    else:
+        for q in quests:
+            print(f"  {q['title']}")
+            print(f"    {q['description']}")
 
 
 def main():
