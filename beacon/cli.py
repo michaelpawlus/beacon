@@ -705,6 +705,116 @@ def job_ignore(job_id: int = typer.Argument(help="Job listing ID")):
         _print(f"No job found with ID {job_id}")
 
 
+@job_app.command("add")
+def job_add(
+    title: str = typer.Option(..., "--title", "-t", help="Job title (required)"),
+    company: str = typer.Option(..., "--company", "-c", help="Company name (required)"),
+    url: str = typer.Option(None, "--url", "-u", help="Job listing URL"),
+    location: str = typer.Option(None, "--location", help="Job location"),
+    department: str = typer.Option(None, "--department", help="Department"),
+    description: str = typer.Option(None, "--description", help="Job description text"),
+    date_posted: str = typer.Option(None, "--date-posted", help="Date posted (YYYY-MM-DD)"),
+    create_company: bool = typer.Option(False, "--create-company", help="Create a minimal company record if the named company doesn't exist"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Manually add a job listing from an external source (LinkedIn, Workday, etc.)."""
+    from beacon.config import load_config
+    from beacon.db.jobs import upsert_job
+    from beacon.research.job_highlights import extract_highlights
+    from beacon.research.job_scoring import compute_job_relevance
+
+    conn = get_connection()
+
+    row = conn.execute(
+        "SELECT id, name, ai_first_score FROM companies WHERE name = ?", (company,)
+    ).fetchone()
+    if row is None:
+        row = conn.execute(
+            "SELECT id, name, ai_first_score FROM companies WHERE name LIKE ?",
+            (f"%{company}%",),
+        ).fetchone()
+
+    created_company = False
+    if row is None:
+        if not create_company:
+            msg = (
+                f"No company found matching '{company}'. "
+                "Pass --create-company to create a minimal company record."
+            )
+            if as_json:
+                _json_out({"error": msg, "code": 2})
+            else:
+                _print(msg)
+            conn.close()
+            raise typer.Exit(2)
+        cursor = conn.execute(
+            "INSERT INTO companies (name, tier) VALUES (?, 4)", (company,)
+        )
+        conn.commit()
+        company_id = cursor.lastrowid
+        company_score = 0.0
+        company_name = company
+        created_company = True
+    else:
+        company_id = row["id"]
+        company_score = row["ai_first_score"] or 0.0
+        company_name = row["name"]
+
+    job_data = {
+        "title": title,
+        "url": url,
+        "location": location or "",
+        "department": department,
+        "description_text": description or "",
+        "date_posted": date_posted,
+    }
+
+    config = load_config()
+    relevance = compute_job_relevance(job_data, config=config, company_score=company_score)
+    highlights = extract_highlights(description or "")
+
+    result = upsert_job(
+        conn,
+        company_id=company_id,
+        title=title,
+        url=url,
+        location=location,
+        department=department,
+        description_text=description,
+        date_posted=date_posted,
+        relevance_score=relevance["score"],
+        match_reasons=relevance["reasons"],
+        highlights=highlights,
+    )
+    conn.close()
+
+    if as_json:
+        _json_out({
+            "job_id": result["id"],
+            "is_new": result["is_new"],
+            "company_id": company_id,
+            "company": company_name,
+            "company_created": created_company,
+            "relevance_score": relevance["score"],
+            "title": title,
+            "url": url,
+        })
+        return
+
+    if created_company:
+        _print(
+            f"[yellow]Created company '{company_name}' (tier 4, score 0)[/yellow]"
+            if HAS_RICH else f"Created company '{company_name}' (tier 4, score 0)"
+        )
+    verb = "Added" if result["is_new"] else "Updated"
+    _print(
+        f"[green]✓[/green] {verb} job #{result['id']}: {title} at {company_name} "
+        f"(relevance {relevance['score']:.1f}/10)"
+        if HAS_RICH
+        else f"✓ {verb} job #{result['id']}: {title} at {company_name} (relevance {relevance['score']:.1f}/10)"
+    )
+
+
 # --- Phase 2: Report commands ---
 
 @report_app.command("digest")

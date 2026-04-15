@@ -132,6 +132,95 @@ class TestJobSubcommands:
         assert result.exit_code == 2
         assert "No job found" in result.output
 
+    @patch("beacon.cli.get_connection")
+    def test_job_add_existing_company(self, mock_get_conn, db):
+        conn, db_path = db
+        _insert_company(conn, "Acme AI")
+        mock_get_conn.return_value = conn
+
+        result = runner.invoke(app, [
+            "job", "add",
+            "--title", "Senior Agent Engineer",
+            "--company", "Acme AI",
+            "--url", "https://acme.example.com/jobs/42",
+            "--location", "Remote",
+            "--description", "Build agents using python and LLMs.",
+        ])
+        assert result.exit_code == 0
+        assert "Added job" in result.output
+        verify = get_connection(db_path)
+        row = verify.execute(
+            "SELECT title, location, company_id FROM job_listings WHERE url = ?",
+            ("https://acme.example.com/jobs/42",),
+        ).fetchone()
+        verify.close()
+        assert row is not None
+        assert row["title"] == "Senior Agent Engineer"
+        assert row["location"] == "Remote"
+
+    @patch("beacon.cli.get_connection")
+    def test_job_add_missing_company_errors(self, mock_get_conn, db):
+        conn, db_path = db
+        mock_get_conn.return_value = conn
+
+        result = runner.invoke(app, [
+            "job", "add",
+            "--title", "ML Engineer",
+            "--company", "NoSuchCo",
+        ])
+        assert result.exit_code == 2
+        assert "No company found" in result.output
+        verify = get_connection(db_path)
+        count = verify.execute("SELECT COUNT(*) as c FROM job_listings").fetchone()["c"]
+        verify.close()
+        assert count == 0
+
+    @patch("beacon.cli.get_connection")
+    def test_job_add_create_company(self, mock_get_conn, db):
+        conn, db_path = db
+        mock_get_conn.return_value = conn
+
+        result = runner.invoke(app, [
+            "job", "add",
+            "--title", "Staff Engineer",
+            "--company", "BrandNewCo",
+            "--url", "https://brand.example.com/1",
+            "--create-company",
+        ])
+        assert result.exit_code == 0
+        assert "Created company" in result.output
+        verify = get_connection(db_path)
+        c = verify.execute("SELECT id, tier FROM companies WHERE name = ?", ("BrandNewCo",)).fetchone()
+        j = verify.execute(
+            "SELECT id FROM job_listings WHERE url = ?",
+            ("https://brand.example.com/1",),
+        ).fetchone()
+        verify.close()
+        assert c is not None
+        assert c["tier"] == 4
+        assert j is not None
+
+    @patch("beacon.cli.get_connection")
+    def test_job_add_json_output(self, mock_get_conn, db):
+        conn, db_path = db
+        _insert_company(conn, "Acme AI")
+        mock_get_conn.return_value = conn
+
+        result = runner.invoke(app, [
+            "job", "add",
+            "--title", "Data Engineer",
+            "--company", "Acme AI",
+            "--url", "https://acme.example.com/jobs/9",
+            "--json",
+        ])
+        assert result.exit_code == 0
+        import json as _json
+        data = _json.loads(result.stdout)
+        assert data["is_new"] is True
+        assert data["company"] == "Acme AI"
+        assert data["company_created"] is False
+        assert data["title"] == "Data Engineer"
+        assert "relevance_score" in data
 
 class TestStatsWithJobs:
     @patch("beacon.cli.get_connection")

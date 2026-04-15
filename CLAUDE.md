@@ -60,6 +60,7 @@ Every read/output command supports `--json`. When set:
 | `beacon job show <id>` | Detailed job info | `--json` |
 | `beacon job apply <id>` | Mark as applied, create application record | `--generate` `--notes TEXT` |
 | `beacon job ignore <id>` | Mark as ignored | |
+| `beacon job add` | Manually add an external job listing | `--title TEXT` `--company TEXT` `--url TEXT` `--location TEXT` `--department TEXT` `--description TEXT` `--date-posted DATE` `--create-company` `--json` |
 
 ### Report Sub-commands (`beacon report ...`)
 
