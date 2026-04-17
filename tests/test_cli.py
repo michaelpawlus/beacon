@@ -222,6 +222,132 @@ class TestJobSubcommands:
         assert data["title"] == "Data Engineer"
         assert "relevance_score" in data
 
+    @patch("beacon.cli.get_connection")
+    def test_job_add_fetch_requires_url(self, mock_get_conn, db):
+        conn, _ = db
+        mock_get_conn.return_value = conn
+
+        result = runner.invoke(app, ["job", "add", "--fetch"])
+        assert result.exit_code == 1
+        assert "--fetch requires --url" in result.output
+
+    @patch("beacon.research.job_fetcher.fetch_job_from_url")
+    @patch("beacon.cli.get_connection")
+    def test_job_add_fetch_extracts_fields(self, mock_get_conn, mock_fetch, db):
+        conn, db_path = db
+        _insert_company(conn, "Acme AI")
+        mock_get_conn.return_value = conn
+        mock_fetch.return_value = {
+            "title": "Staff ML Engineer",
+            "company": "Acme AI",
+            "url": "https://boards.greenhouse.io/acme/jobs/99",
+            "location": "Remote, US",
+            "department": "Research",
+            "description_text": "Build agent infrastructure with Python and LLMs.",
+            "date_posted": "2026-04-01",
+            "platform": "greenhouse",
+        }
+
+        result = runner.invoke(app, [
+            "job", "add",
+            "--fetch",
+            "--url", "https://boards.greenhouse.io/acme/jobs/99",
+            "--json",
+        ])
+        assert result.exit_code == 0, result.output
+        import json as _json
+        data = _json.loads(result.stdout)
+        assert data["title"] == "Staff ML Engineer"
+        assert data["company"] == "Acme AI"
+        assert data["fetched"] is True
+        assert data["platform"] == "greenhouse"
+        assert data["is_new"] is True
+
+        verify = get_connection(db_path)
+        row = verify.execute(
+            "SELECT title, location, department, description_text, date_posted "
+            "FROM job_listings WHERE url = ?",
+            ("https://boards.greenhouse.io/acme/jobs/99",),
+        ).fetchone()
+        verify.close()
+        assert row["title"] == "Staff ML Engineer"
+        assert row["location"] == "Remote, US"
+        assert row["department"] == "Research"
+        assert "agent infrastructure" in row["description_text"]
+        assert row["date_posted"] == "2026-04-01"
+
+    @patch("beacon.research.job_fetcher.fetch_job_from_url")
+    @patch("beacon.cli.get_connection")
+    def test_job_add_fetch_cli_overrides_extracted(self, mock_get_conn, mock_fetch, db):
+        conn, _ = db
+        _insert_company(conn, "Acme AI")
+        mock_get_conn.return_value = conn
+        mock_fetch.return_value = {
+            "title": "Extracted Title",
+            "company": "Acme AI",
+            "url": "https://x.com/1",
+            "location": "Remote",
+            "department": None,
+            "description_text": "Extracted body.",
+            "date_posted": None,
+            "platform": None,
+        }
+
+        result = runner.invoke(app, [
+            "job", "add",
+            "--fetch",
+            "--url", "https://x.com/1",
+            "--title", "Overridden Title",
+            "--json",
+        ])
+        assert result.exit_code == 0, result.output
+        import json as _json
+        data = _json.loads(result.stdout)
+        assert data["title"] == "Overridden Title"
+
+    @patch("beacon.research.job_fetcher.fetch_job_from_url")
+    @patch("beacon.cli.get_connection")
+    def test_job_add_fetch_missing_title_errors(self, mock_get_conn, mock_fetch, db):
+        conn, _ = db
+        mock_get_conn.return_value = conn
+        mock_fetch.return_value = {
+            "title": "",
+            "company": "",
+            "url": "https://x.com/1",
+            "location": "",
+            "department": "",
+            "description_text": "",
+            "date_posted": None,
+            "platform": None,
+        }
+
+        result = runner.invoke(app, [
+            "job", "add",
+            "--fetch",
+            "--url", "https://x.com/1",
+        ])
+        assert result.exit_code == 1
+        assert "Missing required field" in result.output
+
+    @patch("beacon.research.job_fetcher.fetch_job_from_url")
+    @patch("beacon.cli.get_connection")
+    def test_job_add_fetch_network_error(self, mock_get_conn, mock_fetch, db):
+        conn, _ = db
+        mock_get_conn.return_value = conn
+        mock_fetch.side_effect = RuntimeError("connection refused")
+
+        result = runner.invoke(app, [
+            "job", "add",
+            "--fetch",
+            "--url", "https://x.com/1",
+            "--json",
+        ])
+        assert result.exit_code == 1
+        import json as _json
+        data = _json.loads(result.stdout)
+        assert "Failed to fetch" in data["error"]
+
+
 class TestStatsWithJobs:
     @patch("beacon.cli.get_connection")
     def test_stats_shows_job_counts(self, mock_get_conn, db):

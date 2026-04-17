@@ -707,9 +707,10 @@ def job_ignore(job_id: int = typer.Argument(help="Job listing ID")):
 
 @job_app.command("add")
 def job_add(
-    title: str = typer.Option(..., "--title", "-t", help="Job title (required)"),
-    company: str = typer.Option(..., "--company", "-c", help="Company name (required)"),
-    url: str = typer.Option(None, "--url", "-u", help="Job listing URL"),
+    title: str = typer.Option(None, "--title", "-t", help="Job title (required unless --fetch extracts it)"),
+    company: str = typer.Option(None, "--company", "-c", help="Company name (required unless --fetch extracts it)"),
+    url: str = typer.Option(None, "--url", "-u", help="Job listing URL (required with --fetch)"),
+    fetch: bool = typer.Option(False, "--fetch", help="Auto-extract title/company/location/description from --url"),
     location: str = typer.Option(None, "--location", help="Job location"),
     department: str = typer.Option(None, "--department", help="Department"),
     description: str = typer.Option(None, "--description", help="Job description text"),
@@ -717,11 +718,64 @@ def job_add(
     create_company: bool = typer.Option(False, "--create-company", help="Create a minimal company record if the named company doesn't exist"),
     as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
-    """Manually add a job listing from an external source (LinkedIn, Workday, etc.)."""
+    """Manually add a job listing from an external source (LinkedIn, Workday, etc.).
+
+    With --fetch, beacon pulls title/company/location/description from the URL
+    (JSON-LD first, then OpenGraph/HTML heuristics). Explicit flags always
+    override extracted values.
+    """
     from beacon.config import load_config
     from beacon.db.jobs import upsert_job
     from beacon.research.job_highlights import extract_highlights
     from beacon.research.job_scoring import compute_job_relevance
+
+    fetched_platform = None
+    if fetch:
+        if not url:
+            msg = "--fetch requires --url"
+            if as_json:
+                _json_out({"error": msg, "code": 1})
+            else:
+                _print(msg)
+            raise typer.Exit(1)
+        try:
+            from beacon.research.job_fetcher import fetch_job_from_url
+            extracted = fetch_job_from_url(url)
+        except ImportError as e:
+            if as_json:
+                _json_out({"error": str(e), "code": 1})
+            else:
+                _print(str(e))
+            raise typer.Exit(1) from e
+        except RuntimeError as e:
+            msg = f"Failed to fetch job from URL: {e}"
+            if as_json:
+                _json_out({"error": msg, "code": 1})
+            else:
+                _print(msg)
+            raise typer.Exit(1) from e
+
+        fetched_platform = extracted.get("platform")
+        title = title or extracted.get("title") or None
+        company = company or extracted.get("company") or None
+        location = location or extracted.get("location") or None
+        department = department or extracted.get("department") or None
+        description = description or extracted.get("description_text") or None
+        date_posted = date_posted or extracted.get("date_posted") or None
+
+    missing = []
+    if not title:
+        missing.append("--title")
+    if not company:
+        missing.append("--company")
+    if missing:
+        hint = " (extraction returned no value)" if fetch else ""
+        msg = f"Missing required field(s): {', '.join(missing)}{hint}"
+        if as_json:
+            _json_out({"error": msg, "code": 1})
+        else:
+            _print(msg)
+        raise typer.Exit(1)
 
     conn = get_connection()
 
@@ -789,7 +843,7 @@ def job_add(
     conn.close()
 
     if as_json:
-        _json_out({
+        payload = {
             "job_id": result["id"],
             "is_new": result["is_new"],
             "company_id": company_id,
@@ -798,9 +852,20 @@ def job_add(
             "relevance_score": relevance["score"],
             "title": title,
             "url": url,
-        })
+        }
+        if fetch:
+            payload["fetched"] = True
+            payload["platform"] = fetched_platform
+        _json_out(payload)
         return
 
+    if fetch:
+        platform_note = f" (platform: {fetched_platform})" if fetched_platform else ""
+        _print(
+            f"[cyan]Fetched job details from URL{platform_note}[/cyan]"
+            if HAS_RICH
+            else f"Fetched job details from URL{platform_note}"
+        )
     if created_company:
         _print(
             f"[yellow]Created company '{company_name}' (tier 4, score 0)[/yellow]"
