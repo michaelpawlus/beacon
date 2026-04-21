@@ -250,3 +250,15 @@ Read commands support composable filters (AND logic):
 - `pip install beacon[llm]` — anthropic SDK for content generation
 - `pip install beacon[docs]` — python-docx + fpdf2 for resume rendering
 - `pip install beacon[notifications]` — plyer for desktop notifications
+
+## Web UI (`web/`)
+
+Next.js 15 + Tailwind + TypeScript dashboard at `web/`. Read-only view over `data/beacon.db` via `better-sqlite3`, falls back to mock data when the DB is missing or empty. Routes: `/dashboard` (A/B/C direction toggle — Command Deck / Briefing / Console), `/applications` (kanban ↔ list toggle), `/jobs` (card variation picker), plus stubs for `/companies`, `/content`, `/settings`. Theme toggle (dark/light) persists to localStorage.
+
+```bash
+cd web && npm install
+npm run dev     # http://localhost:3000
+npm run build   # production build
+```
+
+The dashboard direction + pipeline view + theme all persist per-user via localStorage keys (`beacon-theme`, `beacon-direction`, `beacon-pipeline-view`). Pages are server-rendered (`dynamic = "force-dynamic"`) so DB changes are picked up on each request.
