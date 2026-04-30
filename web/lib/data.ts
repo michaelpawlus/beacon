@@ -2,14 +2,27 @@ import "server-only";
 import path from "node:path";
 import fs from "node:fs";
 import Database from "better-sqlite3";
-import { MOCK_DATA } from "./mock-data";
+import { MOCK_COMPANIES, MOCK_CONTENT, MOCK_DATA, MOCK_SETTINGS } from "./mock-data";
 import type {
   BeaconData,
+  CompaniesData,
+  Company,
+  CompanyScoreBreakdown,
+  CompanySignal,
+  CompanyTool,
+  ContentAlert,
+  ContentCalendarItem,
+  ContentData,
+  ContentDraft,
   FollowUp,
   Interview,
   JobMatch,
+  LeadershipSignal,
   NewsItem,
   PipelineEntry,
+  ResumeFreshness,
+  SettingsAutomationStatus,
+  SettingsData,
   Stats,
   SyncEvent,
 } from "./types";
@@ -217,6 +230,319 @@ function toSync(db: Database.Database): SyncEvent[] {
       ok: !r.errors,
     } satisfies SyncEvent;
   });
+}
+
+function tableExists(db: Database.Database, name: string): boolean {
+  try {
+    const row = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = ?")
+      .get(name) as { name?: string } | undefined;
+    return !!row?.name;
+  } catch {
+    return false;
+  }
+}
+
+function toCompanies(db: Database.Database): Company[] {
+  const rows = db
+    .prepare(
+      `SELECT c.id, c.name, c.domain, c.tier, c.ai_first_score AS score,
+              c.remote_policy, c.hq_location, c.industry, c.description,
+              c.careers_url, c.careers_platform, c.last_researched_at,
+              (SELECT COUNT(*) FROM job_listings j
+                WHERE j.company_id = c.id AND j.status = 'active') AS open_jobs
+         FROM companies c
+     ORDER BY c.tier ASC, c.ai_first_score DESC, c.name ASC`,
+    )
+    .all() as Array<{
+      id: number;
+      name: string;
+      domain: string | null;
+      tier: number | null;
+      score: number | null;
+      remote_policy: string | null;
+      hq_location: string | null;
+      industry: string | null;
+      description: string | null;
+      careers_url: string | null;
+      careers_platform: string | null;
+      last_researched_at: string | null;
+      open_jobs: number | null;
+    }>;
+
+  const toolStmt = db.prepare(
+    `SELECT tool_name AS name, adoption_level AS adoption, evidence_url AS evidenceUrl
+       FROM tools_adopted WHERE company_id = ? ORDER BY tool_name`,
+  );
+  const signalStmt = db.prepare(
+    `SELECT id, signal_type AS type, title, excerpt,
+            source_url AS sourceUrl, source_name AS sourceName,
+            signal_strength AS strength, date_observed AS dateObserved
+       FROM ai_signals WHERE company_id = ?
+   ORDER BY COALESCE(date_observed, created_at) DESC LIMIT 12`,
+  );
+  const leadershipStmt = db.prepare(
+    `SELECT id, leader_name AS leader, leader_title AS title,
+            signal_type AS signalType, content,
+            source_url AS sourceUrl, date_observed AS dateObserved,
+            impact_level AS impactLevel
+       FROM leadership_signals WHERE company_id = ?
+   ORDER BY COALESCE(date_observed, created_at) DESC LIMIT 8`,
+  );
+  const breakdownStmt = db.prepare(
+    `SELECT leadership_score AS leadership, tool_adoption_score AS toolAdoption,
+            culture_score AS culture, evidence_depth_score AS evidenceDepth,
+            recency_score AS recency, composite_score AS composite,
+            last_computed_at AS lastComputedAt
+       FROM score_breakdown WHERE company_id = ?`,
+  );
+
+  return rows.map((r) => {
+    const tools = toolStmt.all(r.id) as CompanyTool[];
+    const signals = signalStmt.all(r.id) as CompanySignal[];
+    const leadership = leadershipStmt.all(r.id) as LeadershipSignal[];
+    const breakdown = breakdownStmt.get(r.id) as CompanyScoreBreakdown | undefined;
+    return {
+      id: r.id,
+      name: r.name,
+      domain: r.domain,
+      tier: r.tier ?? 4,
+      score: typeof r.score === "number" ? r.score : 0,
+      remotePolicy: r.remote_policy,
+      hqLocation: r.hq_location,
+      industry: r.industry,
+      description: r.description,
+      careersUrl: r.careers_url,
+      careersPlatform: r.careers_platform,
+      lastResearchedAt: r.last_researched_at,
+      lastResearchedAge: relativeAge(r.last_researched_at),
+      toolsList: tools,
+      openJobs: r.open_jobs ?? 0,
+      signals,
+      leadership,
+      breakdown: breakdown ?? null,
+    } satisfies Company;
+  });
+}
+
+function toContent(db: Database.Database): ContentData {
+  const draftRows = db
+    .prepare(
+      `SELECT id, content_type, platform, title, status,
+              published_url, published_at, updated_at, body
+         FROM content_drafts
+     ORDER BY datetime(updated_at) DESC LIMIT 30`,
+    )
+    .all() as Array<{
+      id: number;
+      content_type: string;
+      platform: string;
+      title: string;
+      status: string;
+      published_url: string | null;
+      published_at: string | null;
+      updated_at: string | null;
+      body: string | null;
+    }>;
+
+  const drafts: ContentDraft[] = draftRows.map((r) => ({
+    id: r.id,
+    contentType: r.content_type,
+    platform: r.platform,
+    title: r.title,
+    status: r.status,
+    publishedUrl: r.published_url,
+    publishedAt: r.published_at,
+    updatedAt: r.updated_at,
+    daysSinceUpdate: daysSince(r.updated_at),
+    preview: (r.body ?? "").slice(0, 160).replace(/\s+/g, " ").trim(),
+  }));
+
+  const calendarRows = db
+    .prepare(
+      `SELECT id, title, platform, content_type, topic, target_date, status, draft_id
+         FROM content_calendar
+     ORDER BY CASE WHEN target_date IS NULL THEN 1 ELSE 0 END, target_date ASC LIMIT 20`,
+    )
+    .all() as Array<{
+      id: number;
+      title: string;
+      platform: string;
+      content_type: string;
+      topic: string | null;
+      target_date: string | null;
+      status: string;
+      draft_id: number | null;
+    }>;
+
+  const calendar: ContentCalendarItem[] = calendarRows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    platform: r.platform,
+    contentType: r.content_type,
+    topic: r.topic,
+    targetDate: r.target_date,
+    status: r.status,
+    draftId: r.draft_id,
+  }));
+
+  let resumes: ResumeFreshness[] = [];
+  if (tableExists(db, "resume_variants")) {
+    const variantRows = db
+      .prepare(
+        `SELECT variant_label, COUNT(*) as cnt, MAX(created_at) as last_created
+           FROM resume_variants
+       GROUP BY variant_label
+       ORDER BY last_created DESC`,
+      )
+      .all() as Array<{ variant_label: string; cnt: number; last_created: string | null }>;
+    resumes = variantRows.map((r) => ({
+      variantLabel: r.variant_label,
+      count: r.cnt,
+      lastCreated: r.last_created,
+      daysSince: daysSince(r.last_created),
+    }));
+  }
+
+  const alerts: ContentAlert[] = [];
+  for (const d of drafts) {
+    if (d.status !== "draft") continue;
+    if (d.daysSinceUpdate >= 21) {
+      alerts.push({
+        kind: "stale_draft",
+        title: d.title,
+        detail: `${d.daysSinceUpdate} days since last edit · ${d.platform}`,
+        cli: `beacon presence draft ${d.id}`,
+        tone: "bad",
+      });
+    } else if (d.daysSinceUpdate >= 10) {
+      alerts.push({
+        kind: "stale_draft",
+        title: d.title,
+        detail: `${d.daysSinceUpdate} days since last edit · ${d.platform}`,
+        cli: `beacon presence draft ${d.id}`,
+        tone: "warn",
+      });
+    }
+  }
+  for (const v of resumes) {
+    if (v.daysSince >= 30) {
+      alerts.push({
+        kind: "stale_resume",
+        title: `${v.variantLabel} variant is ${v.daysSince} days old`,
+        detail: `${v.count} variants generated · last on ${v.lastCreated?.slice(0, 10) ?? "—"}`,
+        cli: `beacon profile resume <job_id>`,
+        tone: "bad",
+      });
+    }
+  }
+  for (const c of calendar) {
+    if (c.status === "outlined" || c.status === "idea") {
+      if (c.draftId == null && c.targetDate) {
+        const target = new Date(c.targetDate).getTime();
+        const today = Date.now();
+        const daysOut = Math.round((target - today) / 86_400_000);
+        if (daysOut <= 7 && daysOut >= -1) {
+          alerts.push({
+            kind: "ghost_calendar",
+            title: `${c.title} · target ${c.targetDate}`,
+            detail: `${c.status} but no draft created yet.`,
+            cli:
+              c.contentType === "blog_post"
+                ? `beacon presence blog-outline --topic '${c.topic ?? c.title}'`
+                : `beacon presence linkedin-post --topic '${c.topic ?? c.title}'`,
+            tone: daysOut <= 2 ? "bad" : "warn",
+          });
+        }
+      }
+    }
+  }
+
+  return { drafts, calendar, resumes, alerts };
+}
+
+function toSettings(db: Database.Database, dbPath: string): SettingsData {
+  const automationRows = db
+    .prepare(
+      `SELECT run_type, started_at, completed_at, errors, duration_seconds
+         FROM automation_log
+     ORDER BY started_at DESC LIMIT 60`,
+    )
+    .all() as Array<{
+      run_type: string;
+      started_at: string;
+      completed_at: string | null;
+      errors: string | null;
+      duration_seconds: number | null;
+    }>;
+
+  const totalRuns = automationRows.length;
+  const failedRuns = automationRows.filter((r) => !!r.errors).length;
+  const last = automationRows[0];
+  const automation: SettingsAutomationStatus = last
+    ? {
+        lastRun: last.started_at,
+        lastRunAge: relativeAge(last.started_at),
+        lastRunType: last.run_type,
+        lastRunOk: !last.errors,
+        totalRuns,
+        failedRuns,
+        lastDuration: last.duration_seconds,
+      }
+    : {
+        lastRun: null,
+        lastRunAge: "—",
+        lastRunType: null,
+        lastRunOk: true,
+        totalRuns: 0,
+        failedRuns: 0,
+        lastDuration: null,
+      };
+
+  return {
+    ...MOCK_SETTINGS,
+    automation,
+    dbPath,
+    isMockData: false,
+  };
+}
+
+export function loadCompaniesData(): CompaniesData {
+  const db = openDb();
+  if (!db) return MOCK_COMPANIES;
+  try {
+    const companies = toCompanies(db);
+    if (!companies.length) return MOCK_COMPANIES;
+    const toolSet = new Set<string>();
+    for (const c of companies) for (const t of c.toolsList) toolSet.add(t.name);
+    return { companies, totalTools: Array.from(toolSet).sort() };
+  } catch {
+    return MOCK_COMPANIES;
+  }
+}
+
+export function loadContentData(): ContentData {
+  const db = openDb();
+  if (!db) return MOCK_CONTENT;
+  try {
+    const data = toContent(db);
+    if (!data.drafts.length && !data.calendar.length && !data.resumes.length) {
+      return MOCK_CONTENT;
+    }
+    return data;
+  } catch {
+    return MOCK_CONTENT;
+  }
+}
+
+export function loadSettingsData(): SettingsData {
+  const db = openDb();
+  if (!db) return MOCK_SETTINGS;
+  try {
+    return toSettings(db, DB_PATH);
+  } catch {
+    return MOCK_SETTINGS;
+  }
 }
 
 export function loadBeaconData(): BeaconData {

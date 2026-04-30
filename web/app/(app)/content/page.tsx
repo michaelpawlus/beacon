@@ -1,12 +1,9 @@
-import { PlaceholderPage } from "@/components/chrome/placeholder-page";
+import { loadContentData } from "@/lib/data";
+import { ContentView } from "./view";
+
+export const dynamic = "force-dynamic";
 
 export default function ContentPage() {
-  return (
-    <PlaceholderPage
-      title="Content"
-      breadcrumbs={["Content"]}
-      cliHint="beacon presence drafts --json"
-      description="Resume variants, cover letter templates, LinkedIn/portfolio sync status, story bank, and staleness alerts. Renders from the content_drafts + content_calendar tables."
-    />
-  );
+  const data = loadContentData();
+  return <ContentView data={data} />;
 }

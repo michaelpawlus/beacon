@@ -1,12 +1,14 @@
-import { PlaceholderPage } from "@/components/chrome/placeholder-page";
+import { Suspense } from "react";
+import { loadCompaniesData } from "@/lib/data";
+import { CompaniesView } from "./view";
+
+export const dynamic = "force-dynamic";
 
 export default function CompaniesPage() {
+  const data = loadCompaniesData();
   return (
-    <PlaceholderPage
-      title="Companies"
-      breadcrumbs={["Companies"]}
-      cliHint="beacon companies --tier 1 --json"
-      description="The watchlist of ~94 AI-native companies with scores, signals, and leadership intel. Data source lives in the CLI — this view will render it once wired."
-    />
+    <Suspense fallback={null}>
+      <CompaniesView data={data} />
+    </Suspense>
   );
 }

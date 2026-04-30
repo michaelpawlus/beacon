@@ -70,3 +70,150 @@ export type BeaconData = {
   stats: Stats;
   follow: FollowUp[];
 };
+
+export type CompanySignal = {
+  id: number;
+  type: string;
+  title: string;
+  excerpt: string | null;
+  sourceUrl: string | null;
+  sourceName: string | null;
+  strength: number | null;
+  dateObserved: string | null;
+};
+
+export type LeadershipSignal = {
+  id: number;
+  leader: string;
+  title: string | null;
+  signalType: string | null;
+  content: string;
+  sourceUrl: string | null;
+  dateObserved: string | null;
+  impactLevel: string | null;
+};
+
+export type CompanyTool = {
+  name: string;
+  adoption: string | null;
+  evidenceUrl: string | null;
+};
+
+export type CompanyScoreBreakdown = {
+  leadership: number;
+  toolAdoption: number;
+  culture: number;
+  evidenceDepth: number;
+  recency: number;
+  composite: number;
+  lastComputedAt: string | null;
+};
+
+export type Company = {
+  id: number;
+  name: string;
+  domain: string | null;
+  tier: number;
+  score: number;
+  remotePolicy: string | null;
+  hqLocation: string | null;
+  industry: string | null;
+  description: string | null;
+  careersUrl: string | null;
+  careersPlatform: string | null;
+  lastResearchedAt: string | null;
+  lastResearchedAge: string;
+  toolsList: CompanyTool[];
+  openJobs: number;
+  signals: CompanySignal[];
+  leadership: LeadershipSignal[];
+  breakdown: CompanyScoreBreakdown | null;
+};
+
+export type CompaniesData = {
+  companies: Company[];
+  totalTools: string[];
+};
+
+export type ContentDraft = {
+  id: number;
+  contentType: string;
+  platform: string;
+  title: string;
+  status: "draft" | "published" | "archived" | string;
+  publishedUrl: string | null;
+  publishedAt: string | null;
+  updatedAt: string | null;
+  daysSinceUpdate: number;
+  preview: string;
+};
+
+export type ContentCalendarItem = {
+  id: number;
+  title: string;
+  platform: string;
+  contentType: string;
+  topic: string | null;
+  targetDate: string | null;
+  status: "idea" | "outlined" | "drafted" | "published" | string;
+  draftId: number | null;
+};
+
+export type ResumeFreshness = {
+  variantLabel: string;
+  count: number;
+  lastCreated: string | null;
+  daysSince: number;
+};
+
+export type ContentAlert = {
+  kind: "stale_draft" | "stale_resume" | "missing_calendar" | "ghost_calendar";
+  title: string;
+  detail: string;
+  cli: string;
+  tone: "default" | "warn" | "bad";
+};
+
+export type ContentData = {
+  drafts: ContentDraft[];
+  calendar: ContentCalendarItem[];
+  resumes: ResumeFreshness[];
+  alerts: ContentAlert[];
+};
+
+export type SettingsScoringWeight = {
+  key: string;
+  label: string;
+  value: number;
+};
+
+export type SettingsAutomationStatus = {
+  lastRun: string | null;
+  lastRunAge: string;
+  lastRunType: string | null;
+  lastRunOk: boolean;
+  totalRuns: number;
+  failedRuns: number;
+  lastDuration: number | null;
+};
+
+export type SettingsNotificationChannel = {
+  channel: string;
+  enabled: boolean;
+  detail: string;
+};
+
+export type SettingsShortcut = {
+  combo: string;
+  label: string;
+};
+
+export type SettingsData = {
+  scoring: SettingsScoringWeight[];
+  automation: SettingsAutomationStatus;
+  notifications: SettingsNotificationChannel[];
+  shortcuts: SettingsShortcut[];
+  configPath: string;
+  dbPath: string;
+  isMockData: boolean;
+};

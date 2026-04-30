@@ -1,12 +1,9 @@
-import { PlaceholderPage } from "@/components/chrome/placeholder-page";
+import { loadSettingsData } from "@/lib/data";
+import { SettingsView } from "./view";
+
+export const dynamic = "force-dynamic";
 
 export default function SettingsPage() {
-  return (
-    <PlaceholderPage
-      title="Settings"
-      breadcrumbs={["Settings"]}
-      cliHint="beacon config show --json"
-      description="Scoring thresholds, CLI peer mode, notification channels, and keyboard shortcut overrides."
-    />
-  );
+  const data = loadSettingsData();
+  return <SettingsView data={data} />;
 }
