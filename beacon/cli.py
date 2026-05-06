@@ -3722,16 +3722,43 @@ def gaps_analyze(
             print(f"  + {s['skill']} ({s['proficiency']}) — {s['demand_count']} jobs")
 
 
+GAPS_LIST_SCHEMA_VERSION = 1
+
+
 @gaps_app.command("list")
 def gaps_list(
     status: str = typer.Option(None, "--status", "-s", help="Filter by status (open, learning, closed)"),
+    category: list[str] = typer.Option([], "--category", help="Filter by category (repeatable)"),
+    min_demand: int = typer.Option(None, "--min-demand", help="Minimum demand_count"),
+    limit: int = typer.Option(None, "--limit", help="Max gaps to return"),
+    sort: str = typer.Option("demand", "--sort", help="Sort: demand, priority, recent"),
+    legacy_array: bool = typer.Option(
+        False,
+        "--legacy-array",
+        help="Emit a bare JSON array (pre-v1 contract). Removed after stack-quest migration.",
+    ),
     as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """List tracked skill gaps ranked by demand."""
-    from beacon.research.skill_gaps import get_skill_gaps
+    from beacon.research.skill_gaps import GAPS_SORT_CLAUSES, get_skill_gaps
+
+    if sort not in GAPS_SORT_CLAUSES:
+        msg = f"Invalid --sort '{sort}'. Must be one of: {', '.join(GAPS_SORT_CLAUSES)}"
+        if as_json:
+            _json_out({"error": msg, "code": 1})
+        else:
+            _print(msg)
+        raise typer.Exit(1)
 
     conn = get_connection()
-    rows = get_skill_gaps(conn, status=status)
+    rows = get_skill_gaps(
+        conn,
+        status=status,
+        categories=category or None,
+        min_demand=min_demand,
+        limit=limit,
+        sort=sort,
+    )
     conn.close()
 
     if as_json:
@@ -3744,7 +3771,10 @@ def gaps_list(
                 except (json.JSONDecodeError, TypeError):
                     pass
             data.append(d)
-        _json_out(data)
+        if legacy_array:
+            _json_out(data)
+        else:
+            _json_out({"schema_version": GAPS_LIST_SCHEMA_VERSION, "gaps": data})
         return
 
     if not rows:

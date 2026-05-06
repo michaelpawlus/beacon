@@ -240,17 +240,46 @@ def upsert_skill_gaps(conn: sqlite3.Connection, gaps: list[dict]) -> dict:
     return {"inserted": inserted, "updated": updated}
 
 
+GAPS_SORT_CLAUSES = {
+    "demand": "demand_count DESC, priority DESC, skill_name ASC",
+    "priority": "priority DESC, demand_count DESC, skill_name ASC",
+    "recent": "updated_at DESC, demand_count DESC, skill_name ASC",
+}
+
+
 def get_skill_gaps(
     conn: sqlite3.Connection,
     status: str | None = None,
+    categories: list[str] | None = None,
+    min_demand: int | None = None,
+    limit: int | None = None,
+    sort: str = "demand",
 ) -> list[sqlite3.Row]:
-    """Get skill gaps, optionally filtered by status."""
+    """Get skill gaps with server-side filtering.
+
+    Filters compose with AND logic. ``categories`` matches any of the supplied
+    category strings (case-insensitive). ``sort`` selects the ORDER BY clause
+    from :data:`GAPS_SORT_CLAUSES`.
+    """
+    if sort not in GAPS_SORT_CLAUSES:
+        raise ValueError(f"Invalid sort '{sort}'. Must be one of: {', '.join(GAPS_SORT_CLAUSES)}")
+
     query = "SELECT * FROM skill_gaps WHERE 1=1"
     params: list = []
     if status:
         query += " AND status = ?"
         params.append(status)
-    query += " ORDER BY demand_count DESC, skill_name"
+    if categories:
+        placeholders = ", ".join("?" for _ in categories)
+        query += f" AND LOWER(category) IN ({placeholders})"
+        params.extend(c.lower() for c in categories)
+    if min_demand is not None:
+        query += " AND demand_count >= ?"
+        params.append(min_demand)
+    query += f" ORDER BY {GAPS_SORT_CLAUSES[sort]}"
+    if limit is not None:
+        query += " LIMIT ?"
+        params.append(limit)
     return conn.execute(query, params).fetchall()
 
 

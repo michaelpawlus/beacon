@@ -169,6 +169,67 @@ Every read/output command supports `--json`. When set:
 | `beacon automation agents-status` | Recent agent run summaries | `--json` |
 | `beacon automation test-notify` | Send test notification | |
 
+### Gaps Sub-commands (`beacon gaps ...`)
+
+| Command | Description | Key Flags |
+|---------|-------------|-----------|
+| `beacon gaps analyze` | Analyze gaps against top jobs and persist | `--min-relevance N` `--location TEXT` `--limit N` `--json` |
+| `beacon gaps list` | List tracked gaps (versioned envelope contract — see below) | `--status TEXT` `--category TEXT` `--min-demand N` `--limit N` `--sort {demand,priority,recent}` `--legacy-array` `--json` |
+| `beacon gaps update <skill>` | Update a gap's status (open / learning / closed) | `--status TEXT` |
+| `beacon gaps export` | Export open gaps as quest-ready dicts for code-daily | `--limit N` `--json` |
+
+**`gaps list` vs `gaps export` — when to use which:**
+- `gaps list` is the canonical read API. Use it for any analytical, dashboard, or filtering use case (consumed by stack-quest's `arcs suggest`).
+- `gaps export` is a one-way transformation that wraps open gaps in a quest envelope (title / source / source_ref / description). Use it only when feeding code-daily's quest queue.
+
+### Gaps subcommand contract
+
+`beacon gaps list --json` emits a versioned envelope. Downstream agents (stack-quest, code-daily) should read this contract before consuming the output.
+
+**Envelope:**
+
+```json
+{
+  "schema_version": 1,
+  "gaps": [ /* gap objects */ ]
+}
+```
+
+**Gap object fields** (every field is always present — `null` when unknown):
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | int | Primary key |
+| `skill_name` | string | Canonical skill name (post-normalization) |
+| `category` | string \| null | `language`, `framework`, `tool`, `domain`, or `other` |
+| `demand_count` | int | Number of analyzed jobs requiring this skill |
+| `example_jobs` | array | `[{id, title, company}, ...]`, max 3 per gap |
+| `status` | string | `open`, `learning`, or `closed` |
+| `priority` | int | Defaults to `demand_count` at insert |
+| `created_at` | string | SQLite `datetime('now')` |
+| `updated_at` | string | SQLite `datetime('now')`, refreshed on upsert |
+
+**Filters** (compose with AND, all execute server-side in SQL):
+- `--status open|learning|closed`
+- `--category TEXT` (repeatable — matches any of)
+- `--min-demand INT`
+- `--limit INT`
+- `--sort demand|priority|recent` (default `demand`)
+
+**Sort definitions:**
+- `demand` → `demand_count DESC, priority DESC, skill_name ASC`
+- `priority` → `priority DESC, demand_count DESC, skill_name ASC`
+- `recent` → `updated_at DESC, demand_count DESC, skill_name ASC`
+
+**Errors / exit codes:**
+- `0` success
+- `1` invalid input (e.g. unknown `--sort`); JSON body: `{"error": "...", "code": 1}`
+
+**Backward compatibility:**
+- `--legacy-array` returns the bare pre-v1 array (no envelope). Slated for removal once stack-quest migrates — do not adopt in new integrations.
+
+Contract stability is enforced by `tests/test_gaps_contract.py`. Any change to envelope shape, gap fields, filter semantics, or sort defaults must bump `schema_version` and update consumers.
+
 ### Session Sub-commands (`beacon session ...`)
 
 | Command | Description | Key Flags |
