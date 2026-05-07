@@ -36,6 +36,65 @@ Every read/output command supports `--json`. When set:
 - Exit codes: `0` success, `1` error, `2` not found
 - Prompts/confirmations are skipped
 
+## Convention: Generated artifacts → Obsidian vault via `oj capture`
+
+`beacon profile resume` and `beacon profile cover-letter` (and `beacon job apply
+--generate`) write their markdown into the Obsidian vault by shelling out to
+`oj capture`. Beacon never writes generated markdown to a local `output/`
+directory — that pattern was retired in favor of the
+"Obsidian-as-universal-output" project rule.
+
+**Where artifacts land:**
+
+```
+$OBSIDIAN_VAULT_PATH/
+  Job Search/
+    Resumes/        {YYYY-MM-DD}-{company-slug}-resume.md
+    Cover Letters/  {YYYY-MM-DD}-{company-slug}-cover-letter.md
+    Applications/   (existing folder; cross-link via [[wikilinks]])
+```
+
+**Frontmatter contract** (always present):
+
+```yaml
+---
+date: 2026-05-06
+type: resume        # or cover-letter
+company: "Anthropic"
+role: "Forward Deployed Engineer"
+source: beacon
+tags: [job-search, beacon, generated, resume]   # `cover-letter` instead of `resume` for letters
+---
+```
+
+**Finding artifacts from any agent:**
+
+```bash
+# Last cover letter for an AI-native company
+oj query --tags job-search,cover-letter --json --limit 1
+
+# All resumes ever written
+oj query --folder "Job Search/Resumes" --json
+```
+
+**Overrides:**
+
+- `beacon profile resume <id> --output PATH` — write to a local path instead of
+  the vault (legacy escape hatch; PDF/DOCX always write locally because they're
+  binary and `oj capture` is markdown-only).
+- `beacon profile cover-letter <id> --output PATH` — same.
+
+**Requires:** `oj` CLI on `$PATH` (from the `obsidian_journal` repo) and
+`$OBSIDIAN_VAULT_PATH` set. If `oj` lives in a project-scoped venv instead of
+on `$PATH`, set `OJ_BIN` to its absolute path:
+
+```bash
+export OJ_BIN=~/projects/obsidian_journal/.venv/bin/oj
+```
+
+`oj capture` itself does NOT require `ANTHROPIC_API_KEY` — it's a pure
+file-write, no LLM round-trip.
+
 ## CLI Commands
 
 ### Root Commands
@@ -87,8 +146,8 @@ Every read/output command supports `--json`. When set:
 | `beacon profile interview` | Interactive profile interview | `--section TEXT` |
 | `beacon profile import <file>` | Import profile from JSON | |
 | `beacon profile export` | Export profile as JSON | `--output PATH` |
-| `beacon profile resume <job_id>` | Generate tailored resume | `--pages N` `--format TEXT` `--output PATH` |
-| `beacon profile cover-letter <job_id>` | Generate cover letter | `--tone TEXT` `--output PATH` |
+| `beacon profile resume <job_id>` | Generate tailored resume (markdown lands in vault via `oj capture`) | `--pages N` `--format TEXT` `--output PATH` `--json` |
+| `beacon profile cover-letter <job_id>` | Generate cover letter (lands in vault via `oj capture`) | `--tone TEXT` `--output PATH` `--json` |
 | `beacon profile add-presentation` | Add a presentation | `--title TEXT` `--event TEXT` `--date DATE` `--status TEXT` ... |
 | `beacon profile set-headshot <path>` | Set headshot image path | |
 
@@ -261,6 +320,16 @@ beacon application list --status applied --json
 
 # Profile data for resume generation
 beacon profile show --json
+
+# Tailor a resume for a job — lands in $OBSIDIAN_VAULT_PATH/Job Search/Resumes/
+beacon profile resume 42 --json
+# {"path": "Job Search/Resumes/2026-05-06-anthropic-resume.md", ...}
+
+# Same for a cover letter
+beacon profile cover-letter 42 --json
+
+# Look up the most recent generated artifact from any other agent / project
+oj query --tags job-search,cover-letter --json --limit 1
 
 # Log a video you watched with reaction and sharing fields
 beacon media add "Andrej Karpathy - Intro to LLMs" --type video --creator "Andrej Karpathy" --platform YouTube --rating 5 --tag ai --tag llm --reaction "Great mental model for how LLMs work" --shareable --share-note "Best intro to LLMs for non-technical folks" --why "Gives the team a shared mental model for how LLMs actually work" --quote "The LLM is dreaming the next token" --category "AI Adoption" --json

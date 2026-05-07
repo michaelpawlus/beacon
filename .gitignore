@@ -36,6 +36,10 @@ htmlcov/
 data/ai-first-company-index.md
 data/applications/
 
+# Local artifact dump — beacon now routes resumes/cover letters to the Obsidian
+# vault via `oj capture` (see CLAUDE.md, Job Search/{Resumes,Cover Letters}/).
+output/
+
 # Unrelated projects (have their own repos)
 constituent-news-alerts/
 constituent_household_summary_poc/

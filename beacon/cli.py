@@ -18,6 +18,8 @@ Usage:
 """
 
 import json
+import shutil
+import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -84,6 +86,72 @@ def _row_to_dict(row) -> dict:
 def _rows_to_list(rows) -> list[dict]:
     """Convert a list of sqlite3.Row to list of dicts."""
     return [dict(r) for r in rows]
+
+
+def _slugify(value: str) -> str:
+    """Lowercase-hyphenated slug for filenames (e.g. 'Anthropic, Inc.' → 'anthropic-inc')."""
+    import re as _re
+    s = (value or "").lower().strip()
+    s = _re.sub(r"[^a-z0-9]+", "-", s)
+    return s.strip("-") or "unknown"
+
+
+def _capture_to_vault(
+    *,
+    body: str,
+    folder: str,
+    title: str,
+    fm_type: str,
+    company: str,
+    role: str,
+    extra_tags: list[str] | None = None,
+    related: str | None = None,
+) -> dict:
+    """Pipe a pre-rendered markdown body to `oj capture` and return the JSON envelope.
+
+    Raises RuntimeError on subprocess failure (missing `oj`, vault unset, etc.).
+    Honors `$OJ_BIN` if set — useful when `oj` lives in a project-scoped venv
+    (e.g. `~/projects/obsidian_journal/.venv/bin/oj`) instead of the global PATH.
+    """
+    import os as _os
+    from datetime import date as _date
+
+    oj_bin = _os.environ.get("OJ_BIN") or shutil.which("oj")
+    if not oj_bin:
+        raise RuntimeError(
+            "`oj` CLI not found. Either put it on $PATH (pip install -e "
+            "../obsidian_journal) or set $OJ_BIN to its absolute path "
+            "(e.g. ~/projects/obsidian_journal/.venv/bin/oj)."
+        )
+
+    today = _date.today().isoformat()
+    cmd: list[str] = [
+        oj_bin, "--json", "capture",
+        "--title", title,
+        "--folder", folder,
+        "--type", fm_type,
+        "--date", today,
+        "--tag", "job-search",
+        "--tag", "beacon",
+        "--tag", "generated",
+        "--extra", f"company={company}",
+        "--extra", f"role={role}",
+        "--extra", "source=beacon",
+        "--body-file", "-",
+    ]
+    for tag in extra_tags or []:
+        cmd.extend(["--tag", tag])
+    if related:
+        cmd.extend(["--related", related])
+
+    proc = subprocess.run(cmd, input=body, capture_output=True, text=True)
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip()
+        raise RuntimeError(f"oj capture failed (exit {proc.returncode}): {detail}")
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"oj capture returned non-JSON output: {e}\n{proc.stdout}")
 
 
 @app.command()
@@ -664,26 +732,50 @@ def job_apply(
     _print(f"[green]✓[/green] Job {job_id} marked as applied (application #{app_id})" if HAS_RICH else f"✓ Job {job_id} marked as applied (application #{app_id})")
 
     if generate_materials:
+        from datetime import date as _date
+
+        from beacon.db.jobs import get_job_by_id
+        from beacon.db.profile import update_application
+
         _print("Generating application materials..." if not HAS_RICH else "[bold]Generating application materials...[/bold]")
+
+        job_row = get_job_by_id(conn, job_id)
+        company_name = (job_row["company_name"] if job_row else None) or "unknown"
+        role_name = (job_row["title"] if job_row else None) or "unknown"
+        today = _date.today().isoformat()
+
         try:
             from beacon.materials.renderer import render_markdown
             from beacon.materials.resume import tailor_resume
             result = tailor_resume(conn, job_id)
-            resume_path = f"resume_{job_id}.md"
-            Path(resume_path).write_text(render_markdown(result))
-            from beacon.db.profile import update_application
-            update_application(conn, app_id, resume_path=resume_path)
-            _print(f"  [green]✓[/green] Resume saved to {resume_path}" if HAS_RICH else f"  ✓ Resume saved to {resume_path}")
+            resume_md = render_markdown(result)
+            info = _capture_to_vault(
+                body=resume_md,
+                folder="Job Search/Resumes",
+                title=f"{today} {_slugify(company_name)} resume",
+                fm_type="resume",
+                company=company_name,
+                role=role_name,
+                extra_tags=["resume"],
+            )
+            update_application(conn, app_id, resume_path=info["path"])
+            _print(f"  [green]✓[/green] Resume saved to vault: {info['path']}" if HAS_RICH else f"  ✓ Resume saved to vault: {info['path']}")
         except RuntimeError as e:
             _print(f"  [yellow]⚠[/yellow] Resume generation skipped: {e}" if HAS_RICH else f"  ⚠ Resume generation skipped: {e}")
         try:
             from beacon.materials.cover_letter import generate_cover_letter
             content = generate_cover_letter(conn, job_id)
-            cl_path = f"cover_letter_{job_id}.md"
-            Path(cl_path).write_text(content)
-            from beacon.db.profile import update_application
-            update_application(conn, app_id, cover_letter_path=cl_path)
-            _print(f"  [green]✓[/green] Cover letter saved to {cl_path}" if HAS_RICH else f"  ✓ Cover letter saved to {cl_path}")
+            info = _capture_to_vault(
+                body=content,
+                folder="Job Search/Cover Letters",
+                title=f"{today} {_slugify(company_name)} cover letter",
+                fm_type="cover-letter",
+                company=company_name,
+                role=role_name,
+                extra_tags=["cover-letter"],
+            )
+            update_application(conn, app_id, cover_letter_path=info["path"])
+            _print(f"  [green]✓[/green] Cover letter saved to vault: {info['path']}" if HAS_RICH else f"  ✓ Cover letter saved to vault: {info['path']}")
         except RuntimeError as e:
             _print(f"  [yellow]⚠[/yellow] Cover letter generation skipped: {e}" if HAS_RICH else f"  ⚠ Cover letter generation skipped: {e}")
 
@@ -1630,20 +1722,41 @@ def profile_resume(
     job_id: int = typer.Argument(help="Job listing ID to tailor resume for"),
     pages: int = typer.Option(1, "--pages", "-p", help="Page limit (1 or 2)"),
     format: str = typer.Option("markdown", "--format", "-f", help="Output format: markdown, pdf, docx"),
-    output: str = typer.Option(None, "--output", "-o", help="Output file path"),
+    output: str = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Explicit output path. Markdown with no --output is routed to the Obsidian vault via `oj capture`.",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Emit JSON envelope (path / frontmatter) on stdout"),
 ):
-    """Generate a tailored resume for a job listing."""
+    """Generate a tailored resume for a job listing.
+
+    Markdown output (the default) is routed to the Obsidian vault under
+    `Job Search/Resumes/` via `oj capture` — pass `--output PATH` to write to a
+    local file instead. PDF/DOCX always write locally because they're binary.
+    """
+    from datetime import date as _date
+
     from beacon.materials.resume import tailor_resume
 
     conn = get_connection()
     try:
         result = tailor_resume(conn, job_id, page_limit=pages)
     except ValueError as e:
-        _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+        msg = f"Error: {e}"
+        if as_json:
+            _json_out({"error": str(e), "code": 1})
+        else:
+            _print(f"[red]Error:[/red] {e}" if HAS_RICH else msg)
         conn.close()
         raise typer.Exit(1)
     except RuntimeError as e:
-        _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+        msg = f"Error: {e}"
+        if as_json:
+            _json_out({"error": str(e), "code": 1})
+        else:
+            _print(f"[red]Error:[/red] {e}" if HAS_RICH else msg)
         conn.close()
         raise typer.Exit(1)
     conn.close()
@@ -1651,52 +1764,143 @@ def profile_resume(
     if format == "markdown":
         from beacon.materials.renderer import render_markdown
         content = render_markdown(result)
+
         if output:
             Path(output).write_text(content)
-            _print(f"[green]✓[/green] Resume saved to {output}" if HAS_RICH else f"✓ Resume saved to {output}")
+            if as_json:
+                _json_out({"path": output, "format": "markdown"})
+            else:
+                _print(f"[green]✓[/green] Resume saved to {output}" if HAS_RICH else f"✓ Resume saved to {output}")
+            return
+
+        company = result.company_name or "unknown"
+        role = result.job_title or "unknown"
+        title = f"{_date.today().isoformat()} {_slugify(company)} resume"
+        try:
+            info = _capture_to_vault(
+                body=content,
+                folder="Job Search/Resumes",
+                title=title,
+                fm_type="resume",
+                company=company,
+                role=role,
+                extra_tags=["resume"],
+            )
+        except RuntimeError as e:
+            if as_json:
+                _json_out({"error": str(e), "code": 1})
+            else:
+                _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+            raise typer.Exit(1)
+
+        if as_json:
+            _json_out(info)
         else:
-            print(content)
+            _print(
+                f"[green]✓[/green] Resume saved to vault: {info['path']}"
+                if HAS_RICH else f"✓ Resume saved to vault: {info['path']}"
+            )
     elif format == "docx":
         from beacon.materials.renderer import render_docx
         out_path = output or f"resume_{job_id}.docx"
         render_docx(result, out_path)
-        _print(f"[green]✓[/green] Resume saved to {out_path}" if HAS_RICH else f"✓ Resume saved to {out_path}")
+        if as_json:
+            _json_out({"path": out_path, "format": "docx"})
+        else:
+            _print(f"[green]✓[/green] Resume saved to {out_path}" if HAS_RICH else f"✓ Resume saved to {out_path}")
     elif format == "pdf":
         from beacon.materials.renderer import render_pdf
         out_path = output or f"resume_{job_id}.pdf"
         render_pdf(result, out_path)
-        _print(f"[green]✓[/green] Resume saved to {out_path}" if HAS_RICH else f"✓ Resume saved to {out_path}")
+        if as_json:
+            _json_out({"path": out_path, "format": "pdf"})
+        else:
+            _print(f"[green]✓[/green] Resume saved to {out_path}" if HAS_RICH else f"✓ Resume saved to {out_path}")
     else:
-        _print(f"Unknown format: {format}. Use markdown, pdf, or docx.")
+        if as_json:
+            _json_out({"error": f"Unknown format: {format}", "code": 1})
+        else:
+            _print(f"Unknown format: {format}. Use markdown, pdf, or docx.")
+        raise typer.Exit(1)
 
 
 @profile_app.command("cover-letter")
 def profile_cover_letter(
     job_id: int = typer.Argument(help="Job listing ID"),
     tone: str = typer.Option("professional", "--tone", "-t", help="Tone: professional, conversational, technical"),
-    output: str = typer.Option(None, "--output", "-o", help="Output file path"),
+    output: str = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Explicit output path. With no --output the letter is routed to the Obsidian vault via `oj capture`.",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Emit JSON envelope (path / frontmatter) on stdout"),
 ):
-    """Generate a tailored cover letter for a job listing."""
+    """Generate a tailored cover letter for a job listing.
+
+    Defaults to writing into the Obsidian vault under `Job Search/Cover Letters/`
+    via `oj capture`. Use `--output PATH` to write to a local file instead.
+    """
+    from datetime import date as _date
+
+    from beacon.db.jobs import get_job_by_id
     from beacon.materials.cover_letter import generate_cover_letter
 
     conn = get_connection()
     try:
         content = generate_cover_letter(conn, job_id, tone=tone)
+        job = get_job_by_id(conn, job_id)
     except ValueError as e:
-        _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+        if as_json:
+            _json_out({"error": str(e), "code": 1})
+        else:
+            _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
         conn.close()
         raise typer.Exit(1)
     except RuntimeError as e:
-        _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+        if as_json:
+            _json_out({"error": str(e), "code": 1})
+        else:
+            _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
         conn.close()
         raise typer.Exit(1)
     conn.close()
 
     if output:
         Path(output).write_text(content)
-        _print(f"[green]✓[/green] Cover letter saved to {output}" if HAS_RICH else f"✓ Cover letter saved to {output}")
+        if as_json:
+            _json_out({"path": output, "format": "markdown"})
+        else:
+            _print(f"[green]✓[/green] Cover letter saved to {output}" if HAS_RICH else f"✓ Cover letter saved to {output}")
+        return
+
+    company = (job["company_name"] if job else None) or "unknown"
+    role = (job["title"] if job else None) or "unknown"
+    title = f"{_date.today().isoformat()} {_slugify(company)} cover letter"
+    try:
+        info = _capture_to_vault(
+            body=content,
+            folder="Job Search/Cover Letters",
+            title=title,
+            fm_type="cover-letter",
+            company=company,
+            role=role,
+            extra_tags=["cover-letter"],
+        )
+    except RuntimeError as e:
+        if as_json:
+            _json_out({"error": str(e), "code": 1})
+        else:
+            _print(f"[red]Error:[/red] {e}" if HAS_RICH else f"Error: {e}")
+        raise typer.Exit(1)
+
+    if as_json:
+        _json_out(info)
     else:
-        print(content)
+        _print(
+            f"[green]✓[/green] Cover letter saved to vault: {info['path']}"
+            if HAS_RICH else f"✓ Cover letter saved to vault: {info['path']}"
+        )
 
 
 # --- Phase 3: Application tracking commands ---
