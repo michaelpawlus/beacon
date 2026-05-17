@@ -30,6 +30,7 @@ def init_db(db_path: Path | str | None = None) -> None:
 def _run_migrations(conn: sqlite3.Connection) -> None:
     """Run safe ALTER TABLE migrations for columns added after initial release."""
     _add_column_if_missing(conn, "job_listings", "highlights", "TEXT")
+    _add_column_if_missing(conn, "discovery_candidates", "discovery_score", "REAL DEFAULT 0")
 
 
 def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str, col_type: str) -> None:
@@ -44,6 +45,7 @@ def reset_db(db_path: Path | str | None = None) -> None:
     conn = get_connection(db_path)
     tables = [
         "skill_gaps",
+        "discovery_candidates",
         "media_log", "sessions", "presentations", "speaker_profile",
         "automation_log", "signal_refresh_log", "resume_variants",
         "application_outcomes",

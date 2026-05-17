@@ -1,0 +1,173 @@
+# Curated seed feed for `beacon companies discover --source yaml`.
+#
+# This file is the always-available fallback when Crunchbase auth isn't set,
+# and the home for "saw this on HN, look later" candidates.
+#
+# Schema: see beacon/sources/yaml_curated.py docstring.
+# - `name` is required.
+# - `source_ref` defaults to a slug of `name`; set it explicitly when you might
+#   later rename the entry but want to keep its history.
+# - `signals` are optional; each one bumps the discovery score so well-evidenced
+#   candidates surface at the top of `beacon companies candidates`.
+
+companies:
+  - name: xAI
+    domain: x.ai
+    careers_url: https://x.ai/careers
+    hq_location: Palo Alto, CA
+    industry: AI Research & Products
+    signals:
+      - signal_type: product_integration
+        title: Grok integrated across X (formerly Twitter)
+        source_url: https://x.ai
+        signal_strength: 5
+      - signal_type: press_coverage
+        title: Founded by Elon Musk; raised multi-billion rounds
+        signal_strength: 4
+
+  - name: Inflection AI
+    domain: inflection.ai
+    careers_url: https://inflection.ai/careers
+    hq_location: Palo Alto, CA
+    industry: AI Research & Products
+    signals:
+      - signal_type: leadership_statement
+        title: "Founders Mustafa Suleyman & Reid Hoffman publicly AI-native"
+        signal_strength: 4
+
+  - name: Codeium
+    domain: codeium.com
+    careers_url: https://codeium.com/careers
+    hq_location: Mountain View, CA
+    industry: Developer Tools
+    signals:
+      - signal_type: product_integration
+        title: AI coding assistant — product *is* the AI workflow
+        signal_strength: 5
+
+  - name: Tabnine
+    domain: tabnine.com
+    careers_url: https://www.tabnine.com/careers
+    hq_location: Tel Aviv, Israel
+    industry: Developer Tools
+    signals:
+      - signal_type: product_integration
+        title: AI code completion across IDEs
+        signal_strength: 4
+
+  - name: Sourcegraph
+    domain: sourcegraph.com
+    careers_url: https://about.sourcegraph.com/careers
+    hq_location: San Francisco, CA
+    industry: Developer Tools
+    signals:
+      - signal_type: product_integration
+        title: Cody AI coding assistant
+        source_url: https://sourcegraph.com/cody
+        signal_strength: 5
+      - signal_type: engineering_blog
+        title: Sourcegraph blog regularly covers AI code intelligence
+        signal_strength: 3
+
+  - name: Warp
+    domain: warp.dev
+    careers_url: https://www.warp.dev/careers
+    hq_location: San Francisco, CA
+    industry: Developer Tools
+    signals:
+      - signal_type: product_integration
+        title: AI-native terminal with natural language commands
+        signal_strength: 4
+
+  - name: Zed Industries
+    domain: zed.dev
+    careers_url: https://zed.dev/jobs
+    hq_location: San Francisco, CA
+    industry: Developer Tools
+    signals:
+      - signal_type: product_integration
+        title: AI features baked into the Zed editor
+        signal_strength: 4
+
+  - name: Continue
+    domain: continue.dev
+    careers_url: https://www.continue.dev
+    hq_location: San Francisco, CA
+    industry: Developer Tools
+    signals:
+      - signal_type: github_activity
+        title: Open-source AI code assistant
+        source_url: https://github.com/continuedev/continue
+        signal_strength: 4
+
+  - name: Pinecone
+    domain: pinecone.io
+    careers_url: https://www.pinecone.io/careers
+    hq_location: New York, NY
+    industry: AI Infrastructure / Vector DB
+    signals:
+      - signal_type: product_integration
+        title: Vector database powering AI applications
+        signal_strength: 4
+
+  - name: LangChain
+    domain: langchain.com
+    careers_url: https://www.langchain.com/careers
+    hq_location: San Francisco, CA
+    industry: AI Infrastructure / Frameworks
+    signals:
+      - signal_type: github_activity
+        title: Leading open-source LLM application framework
+        source_url: https://github.com/langchain-ai/langchain
+        signal_strength: 5
+
+  - name: LlamaIndex
+    domain: llamaindex.ai
+    careers_url: https://www.llamaindex.ai/careers
+    hq_location: San Francisco, CA
+    industry: AI Infrastructure / Frameworks
+    signals:
+      - signal_type: github_activity
+        title: RAG framework for LLM apps
+        source_url: https://github.com/run-llama/llama_index
+        signal_strength: 4
+
+  - name: Glean
+    domain: glean.com
+    careers_url: https://www.glean.com/careers
+    hq_location: Palo Alto, CA
+    industry: Enterprise Search / AI
+    signals:
+      - signal_type: product_integration
+        title: AI-powered enterprise search assistant
+        signal_strength: 4
+
+  - name: Harvey
+    domain: harvey.ai
+    careers_url: https://www.harvey.ai/careers
+    hq_location: San Francisco, CA
+    industry: Legal AI
+    signals:
+      - signal_type: product_integration
+        title: GPT-powered AI for law firms; OpenAI Startup Fund backed
+        signal_strength: 5
+
+  - name: Adept
+    domain: adept.ai
+    careers_url: https://www.adept.ai/careers
+    hq_location: San Francisco, CA
+    industry: AI Research & Products
+    signals:
+      - signal_type: product_integration
+        title: AI agents for workplace software
+        signal_strength: 4
+
+  - name: Imbue
+    domain: imbue.com
+    careers_url: https://imbue.com/careers
+    hq_location: San Francisco, CA
+    industry: AI Research & Products
+    signals:
+      - signal_type: leadership_statement
+        title: Building agents that reason; large funding round
+        signal_strength: 3

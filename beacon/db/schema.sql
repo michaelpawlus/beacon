@@ -468,3 +468,29 @@ CREATE INDEX IF NOT EXISTS idx_network_contacts_company_id ON network_contacts(c
 CREATE INDEX IF NOT EXISTS idx_network_contacts_priority ON network_contacts(priority DESC);
 CREATE INDEX IF NOT EXISTS idx_network_ce_contact ON network_contact_events(contact_id);
 CREATE INDEX IF NOT EXISTS idx_network_ce_event ON network_contact_events(event_id);
+
+-- Discovery candidates — companies surfaced by source adapters, awaiting review
+CREATE TABLE IF NOT EXISTS discovery_candidates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,
+    source_ref TEXT NOT NULL,
+    name TEXT NOT NULL,
+    domain TEXT,
+    careers_url TEXT,
+    hq_location TEXT,
+    industry TEXT,
+    signals_json TEXT,                          -- JSON-serialized list[dict]
+    raw_json TEXT,                              -- full source record (audit trail)
+    discovery_score REAL DEFAULT 0,             -- evidence-weighted ranking score
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(status IN ('pending', 'promoted', 'rejected')),
+    reject_reason TEXT,
+    promoted_to_company_id INTEGER REFERENCES companies(id),
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(source, source_ref)
+);
+
+CREATE INDEX IF NOT EXISTS idx_candidates_status ON discovery_candidates(status);
+CREATE INDEX IF NOT EXISTS idx_candidates_source ON discovery_candidates(source);
+CREATE INDEX IF NOT EXISTS idx_candidates_score ON discovery_candidates(discovery_score DESC);

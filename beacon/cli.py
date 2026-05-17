@@ -36,6 +36,7 @@ except ImportError:
 from beacon.db.connection import get_connection, init_db
 
 app = typer.Typer(help="Beacon: AI-First Company Intelligence Database")
+companies_app = typer.Typer(help="Company list + discovery (yaml, crunchbase, ...)", invoke_without_command=True)
 job_app = typer.Typer(help="Job listing operations")
 report_app = typer.Typer(help="Report generation")
 profile_app = typer.Typer(help="Professional profile management")
@@ -47,6 +48,7 @@ session_app = typer.Typer(help="Claude Code session logging")
 media_app = typer.Typer(help="Media log — track videos, podcasts, articles")
 network_app = typer.Typer(help="Networking — events and professional contacts")
 gaps_app = typer.Typer(help="Skill gap tracking and analysis")
+app.add_typer(companies_app, name="companies")
 app.add_typer(job_app, name="job")
 app.add_typer(report_app, name="report")
 app.add_typer(profile_app, name="profile")
@@ -175,15 +177,18 @@ def init(seed: bool = typer.Option(True, help="Seed with initial company data"))
         )
 
 
-@app.command()
+@companies_app.callback()
 def companies(
+    ctx: typer.Context,
     tier: int = typer.Option(None, "--tier", "-t", help="Filter by tier (1-4)"),
     min_score: float = typer.Option(None, "--min-score", "-m", help="Minimum AI-first score"),
     tools: str = typer.Option(None, "--tools", help="Filter by adopted tool name (partial match)"),
     limit: int = typer.Option(50, "--limit", "-l", help="Max results"),
     as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
-    """List companies sorted by AI-first score."""
+    """List companies sorted by AI-first score (when invoked without a subcommand)."""
+    if ctx.invoked_subcommand is not None:
+        return
     conn = get_connection()
 
     if tools:
@@ -245,6 +250,379 @@ def companies(
     else:
         for i, r in enumerate(rows, 1):
             print(f"{i:3d}. [{r['ai_first_score']:.1f}] {r['name']} (Tier {r['tier']}, {r['remote_policy']})")
+
+
+# ----------------------------------------------------------------------------
+# `beacon companies discover / sources / candidates / promote / reject`
+# Pluggable adapter-driven discovery. Adapters cast a wide net; the dedupe +
+# scoring layer ranks candidates so the most-evidenced ones surface first.
+# Promotion remains a deliberate human/agent decision.
+# ----------------------------------------------------------------------------
+
+
+@companies_app.command("sources")
+def companies_sources(
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """List registered discovery source adapters."""
+    from beacon.sources import list_sources
+
+    conn = get_connection()
+    names = list_sources()
+
+    rows = []
+    for name in names:
+        last = conn.execute(
+            "SELECT MAX(created_at) AS last_run FROM discovery_candidates WHERE source = ?",
+            (name,),
+        ).fetchone()
+        pending = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM discovery_candidates WHERE source = ? AND status = 'pending'",
+            (name,),
+        ).fetchone()
+        rows.append({
+            "name": name,
+            "last_run": last["last_run"] if last else None,
+            "pending_candidates": pending["cnt"] if pending else 0,
+        })
+    conn.close()
+
+    if as_json:
+        _json_out(rows)
+        return
+
+    if HAS_RICH:
+        table = Table(title="Discovery Sources")
+        table.add_column("Source", style="bold")
+        table.add_column("Last run")
+        table.add_column("Pending", justify="right")
+        for r in rows:
+            table.add_row(r["name"], r["last_run"] or "—", str(r["pending_candidates"]))
+        console.print(table)
+    else:
+        for r in rows:
+            print(f"  {r['name']:<14} last_run={r['last_run'] or '—'} pending={r['pending_candidates']}")
+
+
+@companies_app.command("discover")
+def companies_discover(
+    source: str = typer.Option(..., "--source", "-s", help="Adapter name (see `beacon companies sources`)"),
+    limit: int = typer.Option(None, "--limit", "-l", help="Cap candidates fetched from the source"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Fetch + dedupe but don't write rows"),
+    curated_dir: str = typer.Option(None, "--curated-dir", help="Override curated dir (yaml source only)"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Fetch candidates from a source, dedupe against existing companies, persist."""
+    from beacon.sources import SourceAuthError, SourceError, get_adapter
+    from beacon.sources.dedupe import upsert_candidates
+
+    adapter_kwargs: dict = {}
+    if source == "yaml" and curated_dir:
+        adapter_kwargs["curated_dir"] = curated_dir
+
+    try:
+        adapter = get_adapter(source, **adapter_kwargs)
+    except KeyError as e:
+        msg = str(e).strip("'\"")
+        if as_json:
+            _json_out({"error": msg, "code": 1})
+        else:
+            _stderr(f"Error: {msg}")
+        raise typer.Exit(1)
+
+    try:
+        candidates = list(adapter.fetch(limit=limit))
+    except SourceAuthError as e:
+        if as_json:
+            _json_out({"error": str(e), "code": 1})
+        else:
+            _stderr(f"Error: {e}")
+        raise typer.Exit(1)
+    except SourceError as e:
+        if as_json:
+            _json_out({"error": str(e), "code": 1})
+        else:
+            _stderr(f"Error: {e}")
+        raise typer.Exit(1)
+
+    conn = get_connection()
+    result = upsert_candidates(conn, candidates, dry_run=dry_run)
+    conn.close()
+
+    payload = {
+        "source": source,
+        "dry_run": dry_run,
+        "fetched": len(candidates),
+        **{k: v for k, v in result.items()},
+        "inserted_count": len(result["inserted"]),
+        "skipped_existing_count": len(result["skipped_existing"]),
+        "skipped_duplicate_count": len(result["skipped_duplicate"]),
+    }
+
+    if as_json:
+        _json_out(payload)
+        return
+
+    label = "Would insert" if dry_run else "Inserted"
+    _print(
+        f"[bold]{source}[/bold]: fetched {len(candidates)} → "
+        f"{label.lower()} {len(result['inserted'])}, "
+        f"skipped {len(result['skipped_existing'])} existing, "
+        f"{len(result['skipped_duplicate'])} duplicate"
+        if HAS_RICH
+        else f"{source}: fetched {len(candidates)} → {label.lower()} {len(result['inserted'])}, "
+             f"skipped {len(result['skipped_existing'])} existing, {len(result['skipped_duplicate'])} duplicate"
+    )
+
+    if result["inserted"]:
+        if HAS_RICH:
+            table = Table(title=f"{label} candidates")
+            table.add_column("ID", style="dim", width=4)
+            table.add_column("Name", style="bold")
+            table.add_column("Domain")
+            table.add_column("Signals", justify="right")
+            table.add_column("Score", justify="right", style="green")
+            for cand in sorted(result["inserted"], key=lambda c: -c["discovery_score"]):
+                table.add_row(
+                    str(cand.get("id") or "—"),
+                    cand["name"],
+                    cand.get("domain") or "—",
+                    str(cand["signal_count"]),
+                    f"{cand['discovery_score']:.1f}",
+                )
+            console.print(table)
+        else:
+            for cand in sorted(result["inserted"], key=lambda c: -c["discovery_score"]):
+                print(f"  [{cand['discovery_score']:.1f}] {cand['name']} ({cand.get('domain') or '—'})")
+
+
+@companies_app.command("candidates")
+def companies_candidates(
+    source: str = typer.Option(None, "--source", "-s", help="Filter by source adapter"),
+    status: str = typer.Option("pending", "--status", help="Filter by status: pending/promoted/rejected/all"),
+    limit: int = typer.Option(50, "--limit", "-l", help="Max results"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """List discovery candidates ranked by evidence-weighted score."""
+    conn = get_connection()
+
+    query = "SELECT * FROM discovery_candidates WHERE 1=1"
+    params: list = []
+    if status and status != "all":
+        query += " AND status = ?"
+        params.append(status)
+    if source:
+        query += " AND source = ?"
+        params.append(source)
+    query += " ORDER BY discovery_score DESC, created_at DESC LIMIT ?"
+    params.append(limit)
+
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+
+    if as_json:
+        _json_out(_rows_to_list(rows))
+        return
+
+    if not rows:
+        _print("No candidates match.")
+        return
+
+    if HAS_RICH:
+        table = Table(title=f"Discovery candidates ({status})")
+        table.add_column("ID", style="dim", width=4)
+        table.add_column("Name", style="bold")
+        table.add_column("Source")
+        table.add_column("Domain")
+        table.add_column("Industry")
+        table.add_column("Score", justify="right", style="green")
+        for r in rows:
+            table.add_row(
+                str(r["id"]),
+                r["name"],
+                r["source"],
+                r["domain"] or "—",
+                (r["industry"] or "")[:32],
+                f"{r['discovery_score']:.1f}",
+            )
+        console.print(table)
+    else:
+        for r in rows:
+            print(f"  {r['id']:>3} [{r['discovery_score']:.1f}] {r['name']} ({r['source']}, {r['domain'] or '—'})")
+
+
+@companies_app.command("promote")
+def companies_promote(
+    candidate_id: int = typer.Argument(..., help="discovery_candidates.id to promote"),
+    tier: int = typer.Option(4, "--tier", help="Starting tier (1-4); default 4 = Emerging"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Promote a candidate into `companies` and copy signals into `ai_signals`."""
+    import json as _json
+
+    conn = get_connection()
+
+    cand = conn.execute(
+        "SELECT * FROM discovery_candidates WHERE id = ?",
+        (candidate_id,),
+    ).fetchone()
+    if cand is None:
+        msg = f"Candidate {candidate_id} not found"
+        if as_json:
+            _json_out({"error": msg, "code": 2})
+        else:
+            _stderr(msg)
+        conn.close()
+        raise typer.Exit(2)
+
+    if cand["status"] != "pending":
+        msg = f"Candidate {candidate_id} status is '{cand['status']}', not 'pending'"
+        if as_json:
+            _json_out({"error": msg, "code": 1})
+        else:
+            _stderr(msg)
+        conn.close()
+        raise typer.Exit(1)
+
+    existing = conn.execute(
+        "SELECT id FROM companies WHERE LOWER(name) = LOWER(?)",
+        (cand["name"],),
+    ).fetchone()
+    if existing:
+        company_id = existing["id"]
+    else:
+        cursor = conn.execute(
+            """
+            INSERT INTO companies (name, domain, careers_url, hq_location, industry, tier)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                cand["name"],
+                cand["domain"],
+                cand["careers_url"],
+                cand["hq_location"],
+                cand["industry"],
+                tier,
+            ),
+        )
+        company_id = cursor.lastrowid
+
+    signals_added = 0
+    if cand["signals_json"]:
+        try:
+            signals = _json.loads(cand["signals_json"]) or []
+        except _json.JSONDecodeError:
+            signals = []
+
+        valid_types = {
+            "leadership_statement", "engineering_blog", "job_posting_language",
+            "conference_talk", "employee_report", "press_coverage",
+            "github_activity", "company_policy", "product_integration", "tool_mandate",
+        }
+        for s in signals:
+            stype = s.get("signal_type")
+            title = s.get("title")
+            if not stype or not title:
+                continue
+            if stype not in valid_types:
+                stype = "press_coverage"
+            conn.execute(
+                """
+                INSERT INTO ai_signals
+                    (company_id, signal_type, title, source_url, source_name, excerpt, signal_strength)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    company_id,
+                    stype,
+                    title,
+                    s.get("source_url"),
+                    s.get("source_name") or cand["source"],
+                    s.get("excerpt"),
+                    s.get("signal_strength") or s.get("strength"),
+                ),
+            )
+            signals_added += 1
+
+    conn.execute(
+        """
+        UPDATE discovery_candidates
+           SET status = 'promoted',
+               promoted_to_company_id = ?,
+               updated_at = datetime('now')
+         WHERE id = ?
+        """,
+        (company_id, candidate_id),
+    )
+    conn.commit()
+    conn.close()
+
+    payload = {
+        "candidate_id": candidate_id,
+        "company_id": company_id,
+        "name": cand["name"],
+        "tier": tier,
+        "signals_added": signals_added,
+    }
+
+    if as_json:
+        _json_out(payload)
+        return
+
+    _print(
+        f"[green]✓[/green] Promoted '{cand['name']}' → company {company_id} "
+        f"(tier {tier}, {signals_added} signals)"
+        if HAS_RICH
+        else f"✓ Promoted '{cand['name']}' → company {company_id} (tier {tier}, {signals_added} signals)"
+    )
+
+
+@companies_app.command("reject")
+def companies_reject(
+    candidate_id: int = typer.Argument(..., help="discovery_candidates.id to reject"),
+    reason: str = typer.Option(None, "--reason", help="Why this candidate is rejected"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Mark a candidate rejected so it isn't re-surfaced."""
+    conn = get_connection()
+
+    cand = conn.execute(
+        "SELECT * FROM discovery_candidates WHERE id = ?",
+        (candidate_id,),
+    ).fetchone()
+    if cand is None:
+        msg = f"Candidate {candidate_id} not found"
+        if as_json:
+            _json_out({"error": msg, "code": 2})
+        else:
+            _stderr(msg)
+        conn.close()
+        raise typer.Exit(2)
+
+    conn.execute(
+        """
+        UPDATE discovery_candidates
+           SET status = 'rejected',
+               reject_reason = ?,
+               updated_at = datetime('now')
+         WHERE id = ?
+        """,
+        (reason, candidate_id),
+    )
+    conn.commit()
+    conn.close()
+
+    payload = {
+        "candidate_id": candidate_id,
+        "name": cand["name"],
+        "status": "rejected",
+        "reason": reason,
+    }
+    if as_json:
+        _json_out(payload)
+        return
+
+    _print(f"Rejected candidate {candidate_id} ({cand['name']}) — {reason or 'no reason given'}")
 
 
 @app.command()

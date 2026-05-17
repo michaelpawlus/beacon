@@ -112,6 +112,27 @@ file-write, no LLM round-trip.
 | `beacon dashboard` | Unified dashboard | `--compact` `--json` |
 | `beacon guide` | Onboarding guide | |
 
+### Companies Sub-commands (`beacon companies ...`)
+
+`beacon companies` with no subcommand still lists companies (legacy behavior).
+The subcommands drive the pluggable discovery pipeline.
+
+| Command | Description | Key Flags |
+|---------|-------------|-----------|
+| `beacon companies sources` | List registered discovery adapters with last-run + pending counts | `--json` |
+| `beacon companies discover` | Fetch candidates from a source, dedupe, write to `discovery_candidates` | `--source NAME` `--limit N` `--dry-run` `--curated-dir PATH` (yaml only) `--json` |
+| `beacon companies candidates` | List discovery candidates ranked by evidence-weighted score | `--source NAME` `--status pending\|promoted\|rejected\|all` `--limit N` `--json` |
+| `beacon companies promote <id>` | Move a candidate into `companies` + copy signals into `ai_signals` | `--tier N` (default 4) `--json` |
+| `beacon companies reject <id>` | Mark a candidate rejected so it isn't re-surfaced | `--reason TEXT` `--json` |
+
+**Sources in v0.1:**
+- `yaml` — curated feed at `beacon/sources/curated/*.yml` (always available, no auth)
+- `crunchbase` — Crunchbase v4 API; requires `CRUNCHBASE_API_KEY` env var; respects free-tier QPS with sleep + jitter
+
+**Discovery scoring** (sort order for `candidates`): source weight + signal count (capped at 5) + 0.5 per filled field (domain/careers_url/industry/hq_location) + 1.0 bonus for any signal with strength ≥ 4. Implementation: `beacon/sources/dedupe.py:score_candidate`.
+
+**Dedupe** (skipping policies): hard match on companies.name (case-insensitive), normalized name (alphanumerics-only) fuzzy match, exact domain match, AND a `UNIQUE(source, source_ref)` constraint so rejected candidates never re-surface.
+
 ### Job Sub-commands (`beacon job ...`)
 
 | Command | Description | Key Flags |
@@ -303,6 +324,17 @@ Contract stability is enforced by `tests/test_gaps_contract.py`. Any change to e
 # Get all tier-1 companies as JSON for cross-project use
 beacon companies --tier 1 --json
 
+# Discover new AI-first companies from the curated YAML feed (no auth)
+beacon companies discover --source yaml --json | jq '.inserted'
+
+# Discover from Crunchbase (requires CRUNCHBASE_API_KEY env var)
+beacon companies discover --source crunchbase --limit 25 --json
+
+# Review evidence-ranked pending candidates, then promote the strongest
+beacon companies candidates --status pending --json | jq '.[0:5]'
+beacon companies promote 7 --tier 3 --json
+beacon companies reject 8 --reason "not actually AI-native" --json
+
 # Find relevant jobs at a specific company
 beacon jobs --company "Anthropic" --min-relevance 7 --json
 
@@ -371,8 +403,14 @@ Read commands support composable filters (AND logic):
 
 - SQLite at `data/beacon.db`
 - Schema in `beacon/db/schema.sql`
-- Key tables: `companies`, `ai_signals`, `leadership_signals`, `tools_adopted`, `score_breakdown`, `job_listings`, `applications`, `application_outcomes`, `work_experiences`, `projects`, `skills`, `education`, `publications_talks`, `content_drafts`, `content_calendar`, `media_log`, `network_events`, `network_contacts`, `network_contact_events`, `presentations`, `speaker_profile`, `resume_variants`, `automation_log`, `sessions`
+- Key tables: `companies`, `ai_signals`, `leadership_signals`, `tools_adopted`, `score_breakdown`, `job_listings`, `applications`, `application_outcomes`, `work_experiences`, `projects`, `skills`, `education`, `publications_talks`, `content_drafts`, `content_calendar`, `media_log`, `network_events`, `network_contacts`, `network_contact_events`, `presentations`, `speaker_profile`, `resume_variants`, `automation_log`, `sessions`, `discovery_candidates`
 - `beacon init` must be run before first use (creates schema + seeds 38 companies)
+
+## Environment Variables
+
+In addition to the global env vars in `~/.bashrc`:
+
+- `CRUNCHBASE_API_KEY` — Crunchbase v4 API bearer key. Required only for `beacon companies discover --source crunchbase`; missing key returns `{"error": "CRUNCHBASE_API_KEY unset", "code": 1}` and exits 1.
 
 ## Optional Dependencies
 
