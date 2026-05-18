@@ -421,12 +421,22 @@ In addition to the global env vars in `~/.bashrc`:
 
 ## Web UI (`web/`)
 
-Next.js 15 + Tailwind + TypeScript dashboard at `web/`. Read-only view over `data/beacon.db` via `better-sqlite3`, falls back to mock data when the DB is missing or empty. Routes: `/dashboard` (A/B/C direction toggle — Command Deck / Briefing / Console), `/applications` (kanban ↔ list toggle), `/jobs` (card variation picker), plus stubs for `/companies`, `/content`, `/settings`. Theme toggle (dark/light) persists to localStorage.
+Next.js 15 + Tailwind + TypeScript dashboard at `web/`. Read-only view over `data/beacon.db` via `better-sqlite3`, falls back to mock data when the DB is missing or empty. All routes ship with real data:
+
+- `/dashboard` — A/B/C direction toggle (Command Deck / Briefing / Console).
+- `/applications` — kanban ↔ list toggle over the `applications` pipeline.
+- `/jobs` — card variation picker over `job_listings`.
+- `/companies` — sortable/filterable table over `companies` + tier/score/tool chips. When `discovery_candidates` has pending rows, a collapsible **Discovery rail** renders above the filter bar with per-source pending counts and copy-to-clipboard `beacon companies promote/reject` CLI chips. The rail is hidden entirely when nothing is pending.
+- `/content` — calendar strip + drafts kanban + staleness alerts + resume-variant freshness, plus a **Presentations** row driven by the `presentations` table and a **Presence quick-actions** grid of CLI chips (linkedin-post, blog-outline, site-generate, bio, etc.). Empty presentations state shows a single `beacon profile add-presentation` chip.
+- `/settings` — real reads: scoring weights come from `beacon/research/scoring.py` constants with an `isCodeDefined` tag (edits live in code, not `beacon config`); automation pulls live from `automation_log`; notifications hydrate from `data/beacon.toml` (path overridable via `BEACON_CONFIG`). When the toml is missing, BeaconConfig defaults render and the page still shows `isMockData: false`.
 
 ```bash
 cd web && npm install
-npm run dev     # http://localhost:3000
-npm run build   # production build
+npm run dev       # http://localhost:3000
+npm run build     # production build
+npm test          # vitest unit tests for data/config layer
 ```
 
 The dashboard direction + pipeline view + theme all persist per-user via localStorage keys (`beacon-theme`, `beacon-direction`, `beacon-pipeline-view`). Pages are server-rendered (`dynamic = "force-dynamic"`) so DB changes are picked up on each request.
+
+**Data flow:** `web/lib/data.ts` is the only place that reads `data/beacon.db`. Each route page calls a `load*Data()` function which returns the page's view-model type from `web/lib/types.ts`. Views in `web/app/(app)/<route>/view.tsx` are pure renderers of that view-model — no DB access. When the DB is missing or empty, the loaders return the shapes in `web/lib/mock-data.ts` so the screen-share demo path still works.

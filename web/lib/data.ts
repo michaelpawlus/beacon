@@ -3,6 +3,8 @@ import path from "node:path";
 import fs from "node:fs";
 import Database from "better-sqlite3";
 import { MOCK_COMPANIES, MOCK_CONTENT, MOCK_DATA, MOCK_SETTINGS } from "./mock-data";
+import { loadBeaconConfig, resolveConfigPath, type BeaconTomlConfig } from "./config";
+import { SCORING_WEIGHTS } from "./scoring-weights";
 import type {
   BeaconData,
   CompaniesData,
@@ -14,29 +16,45 @@ import type {
   ContentCalendarItem,
   ContentData,
   ContentDraft,
+  DiscoveryCandidate,
+  DiscoveryData,
+  DiscoverySource,
   FollowUp,
   Interview,
   JobMatch,
   LeadershipSignal,
   NewsItem,
   PipelineEntry,
+  PresentationItem,
   ResumeFreshness,
   SettingsAutomationStatus,
   SettingsData,
+  SettingsNotificationChannel,
+  SettingsShortcut,
   Stats,
   SyncEvent,
 } from "./types";
 
-const DB_PATH = process.env.BEACON_DB ?? path.join(process.cwd(), "..", "data", "beacon.db");
+function resolveDbPath(): string {
+  return process.env.BEACON_DB ?? path.join(process.cwd(), "..", "data", "beacon.db");
+}
 
 let _db: Database.Database | null = null;
+let _dbPath: string | null = null;
 
 function openDb(): Database.Database | null {
-  if (_db) return _db;
-  if (!fs.existsSync(DB_PATH)) return null;
+  const dbPath = resolveDbPath();
+  if (_db && _dbPath === dbPath) return _db;
+  if (_db && _dbPath !== dbPath) {
+    try { _db.close(); } catch { /* ignore */ }
+    _db = null;
+    _dbPath = null;
+  }
+  if (!fs.existsSync(dbPath)) return null;
   try {
-    _db = new Database(DB_PATH, { readonly: true, fileMustExist: true });
-    _db.pragma("journal_mode = WAL");
+    _db = new Database(dbPath, { readonly: true, fileMustExist: true });
+    try { _db.pragma("journal_mode = WAL"); } catch { /* readonly DB; skip */ }
+    _dbPath = dbPath;
     return _db;
   } catch {
     return null;
@@ -325,6 +343,76 @@ function toCompanies(db: Database.Database): Company[] {
   });
 }
 
+function toDiscovery(db: Database.Database): DiscoveryData {
+  const empty: DiscoveryData = { pendingCount: 0, sources: [], candidates: [] };
+  if (!tableExists(db, "discovery_candidates")) return empty;
+
+  const rows = db
+    .prepare(
+      `SELECT id, source, source_ref, name, domain, careers_url,
+              hq_location, industry, signals_json, discovery_score, created_at
+         FROM discovery_candidates
+        WHERE status = 'pending'
+     ORDER BY discovery_score DESC, created_at DESC
+        LIMIT 50`,
+    )
+    .all() as Array<{
+      id: number;
+      source: string;
+      source_ref: string;
+      name: string;
+      domain: string | null;
+      careers_url: string | null;
+      hq_location: string | null;
+      industry: string | null;
+      signals_json: string | null;
+      discovery_score: number | null;
+      created_at: string | null;
+    }>;
+
+  const candidates: DiscoveryCandidate[] = rows.map((r) => {
+    const signals = parseJson<unknown[]>(r.signals_json, []);
+    return {
+      id: r.id,
+      name: r.name,
+      domain: r.domain,
+      careersUrl: r.careers_url,
+      hqLocation: r.hq_location,
+      industry: r.industry,
+      source: r.source,
+      sourceRef: r.source_ref,
+      score: r.discovery_score ?? 0,
+      signalsCount: Array.isArray(signals) ? signals.length : 0,
+      createdAt: r.created_at,
+    };
+  });
+
+  const sourceMap = new Map<string, DiscoverySource>();
+  for (const c of candidates) {
+    const existing = sourceMap.get(c.source);
+    if (existing) {
+      existing.pending += 1;
+      if (c.createdAt && (!existing.lastRun || c.createdAt > existing.lastRun)) {
+        existing.lastRun = c.createdAt;
+        existing.lastRunAge = relativeAge(c.createdAt);
+      }
+    } else {
+      sourceMap.set(c.source, {
+        name: c.source,
+        pending: 1,
+        lastRun: c.createdAt,
+        lastRunAge: relativeAge(c.createdAt),
+      });
+    }
+  }
+
+  return {
+    pendingCount: candidates.length,
+    sources: Array.from(sourceMap.values()).sort((a, b) => b.pending - a.pending),
+    candidates,
+  };
+}
+
 function toContent(db: Database.Database): ContentData {
   const draftRows = db
     .prepare(
@@ -458,7 +546,71 @@ function toContent(db: Database.Database): ContentData {
     }
   }
 
-  return { drafts, calendar, resumes, alerts };
+  const presentations = toPresentations(db);
+  return { drafts, calendar, resumes, alerts, presentations };
+}
+
+function toPresentations(db: Database.Database): PresentationItem[] {
+  if (!tableExists(db, "presentations")) return [];
+  const rows = db
+    .prepare(
+      `SELECT id, title, event_name, venue, event_url, date, status,
+              duration_minutes, audience
+         FROM presentations
+     ORDER BY CASE WHEN date IS NULL THEN 1 ELSE 0 END, date DESC
+        LIMIT 10`,
+    )
+    .all() as Array<{
+      id: number;
+      title: string;
+      event_name: string | null;
+      venue: string | null;
+      event_url: string | null;
+      date: string | null;
+      status: string;
+      duration_minutes: number | null;
+      audience: string | null;
+    }>;
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    eventName: r.event_name,
+    venue: r.venue,
+    eventUrl: r.event_url,
+    date: r.date,
+    status: r.status,
+    durationMinutes: r.duration_minutes,
+    audience: r.audience,
+  }));
+}
+
+const WEB_SHORTCUTS: SettingsShortcut[] = MOCK_SETTINGS.shortcuts;
+
+function notificationsFromConfig(config: BeaconTomlConfig | null): SettingsNotificationChannel[] {
+  const desktop = config?.notifications.desktop ?? true;
+  const minRelevance = config?.notifications.minRelevanceAlert ?? 7;
+  const smtpHost = config?.smtp.host ?? "";
+  const email = config?.notifications.email ?? "";
+  const cadence = config?.notifications.cadence ?? "daily";
+  return [
+    {
+      channel: "Desktop (plyer)",
+      enabled: desktop,
+      detail: desktop ? `On for relevance ≥ ${minRelevance}` : "Disabled",
+    },
+    {
+      channel: "Email digest",
+      enabled: !!smtpHost && !!email,
+      detail: smtpHost
+        ? `${cadence} via ${smtpHost}${email ? ` → ${email}` : ""}`
+        : "SMTP not configured (beacon config set smtp_host …)",
+    },
+    {
+      channel: "Webhook",
+      enabled: false,
+      detail: "Not wired up in beacon config yet",
+    },
+  ];
 }
 
 function toSettings(db: Database.Database, dbPath: string): SettingsData {
@@ -499,9 +651,14 @@ function toSettings(db: Database.Database, dbPath: string): SettingsData {
         lastDuration: null,
       };
 
+  const cfg = loadBeaconConfig(dbPath);
+
   return {
-    ...MOCK_SETTINGS,
+    scoring: SCORING_WEIGHTS,
     automation,
+    notifications: notificationsFromConfig(cfg.config),
+    shortcuts: WEB_SHORTCUTS,
+    configPath: cfg.path,
     dbPath,
     isMockData: false,
   };
@@ -511,11 +668,12 @@ export function loadCompaniesData(): CompaniesData {
   const db = openDb();
   if (!db) return MOCK_COMPANIES;
   try {
-    const companies = toCompanies(db);
-    if (!companies.length) return MOCK_COMPANIES;
+    const companies = tableExists(db, "companies") ? toCompanies(db) : [];
+    const discovery = toDiscovery(db);
+    if (!companies.length && discovery.pendingCount === 0) return MOCK_COMPANIES;
     const toolSet = new Set<string>();
     for (const c of companies) for (const t of c.toolsList) toolSet.add(t.name);
-    return { companies, totalTools: Array.from(toolSet).sort() };
+    return { companies, totalTools: Array.from(toolSet).sort(), discovery };
   } catch {
     return MOCK_COMPANIES;
   }
@@ -526,7 +684,12 @@ export function loadContentData(): ContentData {
   if (!db) return MOCK_CONTENT;
   try {
     const data = toContent(db);
-    if (!data.drafts.length && !data.calendar.length && !data.resumes.length) {
+    if (
+      !data.drafts.length &&
+      !data.calendar.length &&
+      !data.resumes.length &&
+      !data.presentations.length
+    ) {
       return MOCK_CONTENT;
     }
     return data;
@@ -539,7 +702,7 @@ export function loadSettingsData(): SettingsData {
   const db = openDb();
   if (!db) return MOCK_SETTINGS;
   try {
-    return toSettings(db, DB_PATH);
+    return toSettings(db, resolveDbPath());
   } catch {
     return MOCK_SETTINGS;
   }

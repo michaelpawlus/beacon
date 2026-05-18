@@ -130,9 +130,37 @@ export type Company = {
   breakdown: CompanyScoreBreakdown | null;
 };
 
+export type DiscoveryCandidate = {
+  id: number;
+  name: string;
+  domain: string | null;
+  careersUrl: string | null;
+  hqLocation: string | null;
+  industry: string | null;
+  source: string;
+  sourceRef: string;
+  score: number;
+  signalsCount: number;
+  createdAt: string | null;
+};
+
+export type DiscoverySource = {
+  name: string;
+  pending: number;
+  lastRun: string | null;
+  lastRunAge: string;
+};
+
+export type DiscoveryData = {
+  pendingCount: number;
+  sources: DiscoverySource[];
+  candidates: DiscoveryCandidate[];
+};
+
 export type CompaniesData = {
   companies: Company[];
   totalTools: string[];
+  discovery: DiscoveryData;
 };
 
 export type ContentDraft = {
@@ -174,17 +202,31 @@ export type ContentAlert = {
   tone: "default" | "warn" | "bad";
 };
 
+export type PresentationItem = {
+  id: number;
+  title: string;
+  eventName: string | null;
+  venue: string | null;
+  eventUrl: string | null;
+  date: string | null;
+  status: "planned" | "accepted" | "delivered" | "cancelled" | string;
+  durationMinutes: number | null;
+  audience: string | null;
+};
+
 export type ContentData = {
   drafts: ContentDraft[];
   calendar: ContentCalendarItem[];
   resumes: ResumeFreshness[];
   alerts: ContentAlert[];
+  presentations: PresentationItem[];
 };
 
 export type SettingsScoringWeight = {
   key: string;
   label: string;
   value: number;
+  isCodeDefined?: boolean;
 };
 
 export type SettingsAutomationStatus = {

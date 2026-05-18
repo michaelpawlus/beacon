@@ -84,19 +84,31 @@ function SettingsCard({
 
 function ScoringSection({ t, data }: { t: ReturnType<typeof beaconTokens>; data: SettingsData }) {
   const total = data.scoring.reduce((acc, s) => acc + s.value, 0);
+  const allCodeDefined = data.scoring.every((s) => s.isCodeDefined);
   return (
     <SettingsCard
       t={t}
       title="Scoring weights"
-      caption={`Composite weights for AI-first scoring (${total.toFixed(2)} total). Edit via beacon config.`}
+      caption={
+        allCodeDefined
+          ? `Composite weights for AI-first scoring (${total.toFixed(2)} total). Defined in beacon/research/scoring.py — not editable via beacon config.`
+          : `Composite weights for AI-first scoring (${total.toFixed(2)} total). Edit via beacon config.`
+      }
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {data.scoring.map((s) => {
           const pct = Math.max(0, Math.min(100, (s.value / Math.max(total, 1)) * 100));
           return (
             <div key={s.key} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                <span style={{ fontSize: 12.5, color: t.text }}>{s.label}</span>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                <span style={{ fontSize: 12.5, color: t.text, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  {s.label}
+                  {s.isCodeDefined && (
+                    <Pill t={t} tone="ghost" mono>
+                      constant
+                    </Pill>
+                  )}
+                </span>
                 <span style={{ fontFamily: t.fontMono, fontSize: 12, color: t.accentInk }}>
                   {s.value.toFixed(2)}
                 </span>
@@ -121,10 +133,17 @@ function ScoringSection({ t, data }: { t: ReturnType<typeof beaconTokens>; data:
           );
         })}
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <CliChip t={t} command="beacon config show --json" />
-        <CliChip t={t} command="beacon config set scoring.leadership 0.30" />
-      </div>
+      {allCodeDefined ? (
+        <div style={{ fontSize: 11.5, color: t.textMute, fontFamily: t.fontMono }}>
+          Edit <span style={{ color: t.text }}>beacon/research/scoring.py:WEIGHTS</span> and run{" "}
+          <span style={{ color: t.text }}>beacon scores</span> to recompute.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <CliChip t={t} command="beacon config show --json" />
+          <CliChip t={t} command="beacon config set scoring.leadership 0.30" />
+        </div>
+      )}
     </SettingsCard>
   );
 }

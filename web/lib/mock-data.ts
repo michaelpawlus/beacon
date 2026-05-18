@@ -335,6 +335,11 @@ export const MOCK_COMPANIES: CompaniesData = {
     },
   ],
   totalTools: ["Claude Code", "Cursor", "Replit Agent", "v0"],
+  discovery: {
+    pendingCount: 0,
+    sources: [],
+    candidates: [],
+  },
 };
 
 export const MOCK_CONTENT: ContentData = {
@@ -458,6 +463,30 @@ export const MOCK_CONTENT: ContentData = {
       detail: "Outlined but no draft created yet.",
       cli: "beacon presence blog-outline --topic 'scoring methodology'",
       tone: "warn",
+    },
+  ],
+  presentations: [
+    {
+      id: 1,
+      title: "Beacon: a tool for the agent",
+      eventName: "AI Tinkerers Columbus",
+      venue: "Idea Foundry",
+      eventUrl: null,
+      date: "2026-05-22",
+      status: "accepted",
+      durationMinutes: 20,
+      audience: "AI builders",
+    },
+    {
+      id: 2,
+      title: "Why Claude Code became my personal CTO",
+      eventName: "Local Lunch & Learn",
+      venue: "Online",
+      eventUrl: null,
+      date: "2026-04-10",
+      status: "delivered",
+      durationMinutes: 25,
+      audience: "Engineering team",
     },
   ],
 };

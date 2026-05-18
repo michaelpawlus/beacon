@@ -7,7 +7,7 @@ import { AppShell } from "@/components/chrome/app-shell";
 import { Topbar } from "@/components/chrome/topbar";
 import { Pill } from "@/components/primitives";
 import { icons } from "@/components/icons";
-import type { ContentAlert, ContentCalendarItem, ContentData, ContentDraft } from "@/lib/types";
+import type { ContentAlert, ContentCalendarItem, ContentData, ContentDraft, PresentationItem } from "@/lib/types";
 
 const DRAFT_STAGES: Array<{ key: ContentDraft["status"]; label: string; tone: "default" | "warn" | "accent" }> = [
   { key: "draft", label: "Draft", tone: "default" },
@@ -75,9 +75,170 @@ export function ContentView({ data }: { data: ContentData }) {
             <DraftsKanban t={t} draftsByStage={draftsByStage} />
             <AlertsPane t={t} alerts={data.alerts} resumes={data.resumes} />
           </div>
+
+          <PresentationsRow t={t} presentations={data.presentations} />
+          <PresenceQuickActions t={t} />
         </div>
       </div>
     </AppShell>
+  );
+}
+
+function PresentationsRow({
+  t,
+  presentations,
+}: {
+  t: ReturnType<typeof beaconTokens>;
+  presentations: PresentationItem[];
+}) {
+  return (
+    <div>
+      <SectionHeader t={t} title="Presentations" cli="beacon profile presentations --json" />
+      {presentations.length === 0 ? (
+        <div style={{ marginTop: 12 }}>
+          <CliChip
+            t={t}
+            command={`beacon profile add-presentation --title "..." --event "..." --date YYYY-MM-DD`}
+          />
+        </div>
+      ) : (
+        <div
+          style={{
+            marginTop: 12,
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+            gap: 10,
+          }}
+        >
+          {presentations.map((p) => (
+            <PresentationCard key={p.id} t={t} p={p} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PresentationCard({ t, p }: { t: ReturnType<typeof beaconTokens>; p: PresentationItem }) {
+  const statusTone =
+    p.status === "delivered" ? "accent" : p.status === "accepted" ? "default" : p.status === "cancelled" ? "warn" : "ghost";
+  return (
+    <div
+      style={{
+        background: t.panel,
+        border: `1px solid ${t.border}`,
+        borderRadius: 6,
+        padding: "10px 12px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        <Pill t={t} tone={statusTone}>
+          {p.status}
+        </Pill>
+        {p.date && (
+          <span style={{ fontFamily: t.fontMono, fontSize: 10.5, color: t.textMute }}>{p.date}</span>
+        )}
+        {p.durationMinutes != null && (
+          <span style={{ fontFamily: t.fontMono, fontSize: 10.5, color: t.textMute }}>
+            · {p.durationMinutes}m
+          </span>
+        )}
+      </div>
+      <div style={{ fontSize: 13, fontWeight: 500, color: t.text, lineHeight: 1.35 }}>{p.title}</div>
+      {(p.eventName || p.venue) && (
+        <div style={{ fontSize: 11.5, color: t.textDim }}>
+          {[p.eventName, p.venue].filter(Boolean).join(" · ")}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PresenceQuickActions({ t }: { t: ReturnType<typeof beaconTokens> }) {
+  const actions: Array<{ label: string; cli: string }> = [
+    { label: "LinkedIn post", cli: "beacon presence linkedin-post --topic '<topic>'" },
+    { label: "LinkedIn About", cli: "beacon presence linkedin-about" },
+    { label: "LinkedIn headline", cli: "beacon presence linkedin-headline" },
+    { label: "Blog outline", cli: "beacon presence blog-outline --topic '<topic>'" },
+    { label: "Blog generate", cli: "beacon presence blog-generate --topic '<topic>'" },
+    { label: "Speaker bio", cli: "beacon presence bio --length short" },
+    { label: "Site content", cli: "beacon presence site-generate" },
+    { label: "GitHub README", cli: "beacon presence github" },
+  ];
+  return (
+    <div>
+      <SectionHeader t={t} title="Presence quick-actions" cli={null} />
+      <div
+        style={{
+          marginTop: 12,
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+          gap: 8,
+        }}
+      >
+        {actions.map((a) => (
+          <PresenceActionChip key={a.label} t={t} label={a.label} command={a.cli} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PresenceActionChip({
+  t,
+  label,
+  command,
+}: {
+  t: ReturnType<typeof beaconTokens>;
+  label: string;
+  command: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // ignore
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
+        padding: "8px 10px",
+        background: t.panelAlt,
+        border: `1px dashed ${t.border}`,
+        borderRadius: 5,
+        textAlign: "left",
+        cursor: "pointer",
+        fontFamily: t.fontSans,
+        width: "100%",
+      }}
+      title={command}
+    >
+      <span style={{ fontSize: 12, fontWeight: 500, color: t.text }}>{label}</span>
+      <span
+        style={{
+          fontFamily: t.fontMono,
+          fontSize: 11,
+          color: copied ? t.accentInk : t.textDim,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {copied ? "copied" : command}
+      </span>
+    </button>
   );
 }
 

@@ -8,7 +8,7 @@ import { AppShell } from "@/components/chrome/app-shell";
 import { Topbar } from "@/components/chrome/topbar";
 import { Mono, Pill } from "@/components/primitives";
 import { icons } from "@/components/icons";
-import type { CompaniesData, Company } from "@/lib/types";
+import type { CompaniesData, Company, DiscoveryCandidate, DiscoveryData } from "@/lib/types";
 
 type SortKey = "tier" | "score" | "name" | "openJobs" | "lastResearched";
 
@@ -128,6 +128,9 @@ export function CompaniesView({ data }: { data: CompaniesData }) {
       />
       <div style={{ flex: 1, overflow: "auto", background: t.bg, padding: "20px 24px 60px" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
+          {data.discovery.pendingCount > 0 && (
+            <DiscoveryRail t={t} discovery={data.discovery} />
+          )}
           <FilterBar
             t={t}
             tier={tier}
@@ -303,6 +306,146 @@ function SortHeader({
     >
       {children}
       {active && <span style={{ fontSize: 9 }}>{dir === 1 ? "▲" : "▼"}</span>}
+    </button>
+  );
+}
+
+function DiscoveryRail({ t, discovery }: { t: ReturnType<typeof beaconTokens>; discovery: DiscoveryData }) {
+  const [open, setOpen] = useState(true);
+  const topCandidates = discovery.candidates.slice(0, 10);
+  return (
+    <div
+      style={{
+        background: t.panel,
+        border: `1px solid ${t.border}`,
+        borderRadius: 6,
+        marginBottom: 16,
+        overflow: "hidden",
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "10px 14px",
+          background: "transparent",
+          border: "none",
+          borderBottom: open ? `1px solid ${t.borderSoft}` : "none",
+          cursor: "pointer",
+          textAlign: "left",
+          fontFamily: t.fontSans,
+        }}
+      >
+        <span
+          style={{
+            fontFamily: t.fontMono,
+            fontSize: 10.5,
+            color: t.accentInk,
+            letterSpacing: 0.6,
+            textTransform: "uppercase",
+          }}
+        >
+          Discovery
+        </span>
+        <Pill t={t} tone="accent" mono>
+          {discovery.pendingCount} pending
+        </Pill>
+        {discovery.sources.map((s) => (
+          <span key={s.name} style={{ fontFamily: t.fontMono, fontSize: 11, color: t.textDim }}>
+            {s.name}
+            <span style={{ color: t.textMute, marginLeft: 4 }}>· {s.pending}</span>
+            <span style={{ color: t.textMute, marginLeft: 4 }}>· {s.lastRunAge}</span>
+          </span>
+        ))}
+        <span style={{ flex: 1 }} />
+        <span style={{ fontFamily: t.fontMono, fontSize: 11, color: t.textMute }}>
+          {open ? "▾" : "▸"}
+        </span>
+      </button>
+      {open && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: 10 }}>
+          {topCandidates.map((c) => (
+            <DiscoveryCandidateRow key={c.id} t={t} c={c} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DiscoveryCandidateRow({ t, c }: { t: ReturnType<typeof beaconTokens>; c: DiscoveryCandidate }) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "60px 1fr 90px auto auto",
+        gap: 10,
+        alignItems: "center",
+        padding: "8px 10px",
+        background: t.bg,
+        border: `1px solid ${t.borderSoft}`,
+        borderRadius: 5,
+        fontFamily: t.fontSans,
+      }}
+    >
+      <span style={{ fontFamily: t.fontMono, fontSize: 12, color: t.accentInk }}>
+        {c.score.toFixed(1)}
+      </span>
+      <span style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+        <span style={{ fontSize: 12.5, fontWeight: 500, color: t.text }}>{c.name}</span>
+        <span style={{ fontFamily: t.fontMono, fontSize: 11, color: t.textMute }}>
+          {[c.domain, c.hqLocation, c.industry].filter(Boolean).join(" · ") || "—"}
+        </span>
+      </span>
+      <span style={{ display: "inline-flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+        <Pill t={t} tone="ghost" mono>
+          {c.source}
+        </Pill>
+        {c.signalsCount > 0 && (
+          <span style={{ fontFamily: t.fontMono, fontSize: 10.5, color: t.textMute }}>
+            ★ {c.signalsCount}
+          </span>
+        )}
+      </span>
+      <CliMini t={t} command={`beacon companies promote ${c.id} --tier 4`} label="promote" />
+      <CliMini t={t} command={`beacon companies reject ${c.id} --reason "..."`} label="reject" />
+    </div>
+  );
+}
+
+function CliMini({ t, command, label }: { t: ReturnType<typeof beaconTokens>; command: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // ignore
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      title={command}
+      style={{
+        padding: "4px 8px",
+        background: t.panelAlt,
+        border: `1px dashed ${t.border}`,
+        borderRadius: 4,
+        fontFamily: t.fontMono,
+        fontSize: 11,
+        color: copied ? t.accentInk : t.textDim,
+        cursor: "pointer",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {copied ? "copied" : label}
     </button>
   );
 }
