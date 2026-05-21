@@ -494,3 +494,15 @@ CREATE TABLE IF NOT EXISTS discovery_candidates (
 CREATE INDEX IF NOT EXISTS idx_candidates_status ON discovery_candidates(status);
 CREATE INDEX IF NOT EXISTS idx_candidates_source ON discovery_candidates(source);
 CREATE INDEX IF NOT EXISTS idx_candidates_score ON discovery_candidates(discovery_score DESC);
+
+-- Cached structured requirements for a job listing — populated on first
+-- `beacon match-jobs` run per listing, refreshed when the listing's
+-- date_last_seen advances past extracted_at.
+CREATE TABLE IF NOT EXISTS job_requirements (
+    job_id INTEGER PRIMARY KEY REFERENCES job_listings(id) ON DELETE CASCADE,
+    required_skills TEXT,    -- JSON array
+    preferred_skills TEXT,   -- JSON array
+    keywords TEXT,           -- JSON array
+    seniority TEXT,
+    extracted_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

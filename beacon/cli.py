@@ -1001,6 +1001,104 @@ def jobs(
             print(f"  [{r['id']}] [{r['relevance_score']:.1f}] {r['company_name']}: {r['title']} ({r['status']})")
 
 
+@app.command("match-jobs")
+def match_jobs(
+    limit: int = typer.Option(10, "--limit", "-l", help="Max matches to return"),
+    min_fit: float = typer.Option(None, "--min-fit", help="Minimum fit score (0-10)"),
+    status: str = typer.Option("active", "--status", "-s", help="Filter listings by status, or 'all'"),
+    explain: bool = typer.Option(False, "--explain", help="Show full reason list per match"),
+    with_outcomes: bool = typer.Option(False, "--with-outcomes", help="Weight skills with positive application outcomes"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Rank known listings by overlap with the user's profile (skills, work, outcomes)."""
+    from datetime import datetime, timezone
+
+    from beacon.research.job_fit import compute_job_fit, load_profile_snapshot
+
+    conn = get_connection()
+    profile = load_profile_snapshot(conn)
+    empty_profile = profile["counts"]["skills"] == 0 and profile["counts"]["work"] == 0
+
+    query = (
+        "SELECT j.*, c.name AS company_name "
+        "FROM job_listings j JOIN companies c ON j.company_id = c.id"
+    )
+    params: list = []
+    if status and status != "all":
+        query += " WHERE j.status = ?"
+        params.append(status)
+    rows = conn.execute(query, params).fetchall()
+
+    matches: list[dict] = []
+    for row in rows:
+        fit = compute_job_fit(conn, row, profile=profile, with_outcomes=with_outcomes)
+        if min_fit is not None and fit.fit_score < min_fit:
+            continue
+        matches.append({
+            "job_id": row["id"],
+            "company": row["company_name"],
+            "title": row["title"],
+            "location": row["location"],
+            "fit_score": fit.fit_score,
+            "relevance_score": float(row["relevance_score"] or 0.0),
+            "reasons": fit.reasons,
+            "missing": fit.missing,
+            "sub_scores": fit.sub_scores,
+            "url": row["url"],
+            "status": row["status"],
+        })
+
+    matches.sort(key=lambda m: (m["fit_score"], m["relevance_score"]), reverse=True)
+    matches = matches[:limit]
+    conn.close()
+
+    payload: dict = {
+        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "profile_snapshot": profile["counts"],
+        "matches": matches,
+    }
+    if empty_profile:
+        payload["warning"] = "profile is empty; run beacon profile interview"
+
+    if as_json:
+        _json_out(payload)
+        return
+
+    if empty_profile:
+        _print("[yellow]Profile is empty.[/yellow] Run [bold]beacon profile interview[/bold] to populate it." if HAS_RICH else "Profile is empty. Run `beacon profile interview` to populate it.")
+        return
+
+    if not matches:
+        _print("No matching jobs found.")
+        return
+
+    if HAS_RICH:
+        table = Table(title="Profile-Aligned Job Matches")
+        table.add_column("ID", style="dim", width=5)
+        table.add_column("Company", style="bold")
+        table.add_column("Title")
+        table.add_column("Location", width=18)
+        table.add_column("Fit · Rel", justify="right")
+        table.add_column("Top reasons")
+        table.add_column("Missing", justify="right")
+        for m in matches:
+            fit_color = "green" if m["fit_score"] >= 7 else "yellow" if m["fit_score"] >= 4 else "dim"
+            top_reasons = m["reasons"] if explain else m["reasons"][:2]
+            table.add_row(
+                str(m["job_id"]),
+                m["company"],
+                (m["title"] or "")[:50],
+                (m["location"] or "")[:18],
+                f"[{fit_color}]{m['fit_score']:.1f}[/{fit_color}] · {m['relevance_score']:.1f}",
+                "\n".join(top_reasons),
+                str(len(m["missing"])),
+            )
+        console.print(table)
+    else:
+        for m in matches:
+            print(f"  [{m['job_id']}] fit={m['fit_score']:.1f} rel={m['relevance_score']:.1f} {m['company']}: {m['title']}")
+
+
 @job_app.command("show")
 def job_show(
     job_id: int = typer.Argument(help="Job listing ID"),

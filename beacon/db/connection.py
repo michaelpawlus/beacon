@@ -31,6 +31,16 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
     """Run safe ALTER TABLE migrations for columns added after initial release."""
     _add_column_if_missing(conn, "job_listings", "highlights", "TEXT")
     _add_column_if_missing(conn, "discovery_candidates", "discovery_score", "REAL DEFAULT 0")
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS job_requirements (
+            job_id INTEGER PRIMARY KEY REFERENCES job_listings(id) ON DELETE CASCADE,
+            required_skills TEXT,
+            preferred_skills TEXT,
+            keywords TEXT,
+            seniority TEXT,
+            extracted_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )"""
+    )
 
 
 def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str, col_type: str) -> None:

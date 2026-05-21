@@ -109,6 +109,7 @@ file-write, no LLM round-trip.
 | `beacon export <format>` | Export as markdown/csv/json/report | `--min-score N` `--output PATH` |
 | `beacon scan` | Scan career pages for jobs | `--company TEXT` `--platform TEXT` `--min-score N` `--json` |
 | `beacon jobs` | List job listings by relevance | `--company TEXT` `--status TEXT` `--min-relevance N` `--since DATE` `--new` `--limit N` `--json` |
+| `beacon match-jobs` | Rank listings by overlap with the user's actual profile (skills + work history + outcomes) | `--limit N` `--min-fit FLOAT` `--status active\|all` `--explain` `--with-outcomes` `--json` |
 | `beacon dashboard` | Unified dashboard | `--compact` `--json` |
 | `beacon guide` | Onboarding guide | |
 
@@ -337,6 +338,11 @@ beacon companies reject 8 --reason "not actually AI-native" --json
 
 # Find relevant jobs at a specific company
 beacon jobs --company "Anthropic" --min-relevance 7 --json
+
+# Rank known listings by overlap with the user's actual profile (not just static keywords)
+beacon match-jobs --limit 10 --json
+# Layer in empirical lift from skills that have produced positive outcomes
+beacon match-jobs --with-outcomes --min-fit 6 --json
 
 # Get full company intel for synthesis
 beacon show "Vercel" --json
