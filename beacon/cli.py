@@ -625,6 +625,124 @@ def companies_reject(
     _print(f"Rejected candidate {candidate_id} ({cand['name']}) — {reason or 'no reason given'}")
 
 
+@companies_app.command("diff")
+def companies_diff_command(
+    since: str = typer.Option(..., "--since", help="Window start: ISO date (2026-05-15), Nd (7d), or last-week"),
+    tier: int = typer.Option(None, "--tier", "-t", help="Filter by tier (1-4)"),
+    min_score: float = typer.Option(None, "--min-score", "-m", help="Minimum AI-first score"),
+    include_closed: bool = typer.Option(False, "--include-closed", help="Include scanner-stopped-seeing listings as closed"),
+    limit: int = typer.Option(50, "--limit", "-l", help="Cap each of new/changed arrays"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Diff the company universe since DATE — new companies + role-count deltas."""
+    from datetime import datetime, timezone
+
+    from beacon.db.queries import companies_diff as _companies_diff
+    from beacon.db.queries import has_any_companies_matching
+    from beacon.util.dates import format_iso, format_sqlite, parse_since
+
+    try:
+        since_dt = parse_since(since)
+    except ValueError as e:
+        if as_json:
+            _json_out({"error": str(e), "code": 1})
+        else:
+            _stderr(f"Error: {e}")
+        raise typer.Exit(1)
+
+    until_dt = datetime.now(timezone.utc).replace(microsecond=0)
+    since_sql = format_sqlite(since_dt)
+    since_iso = format_iso(since_dt)
+    until_iso = format_iso(until_dt)
+
+    conn = get_connection()
+
+    if (tier is not None or min_score is not None) and not has_any_companies_matching(
+        conn, tier=tier, min_score=min_score
+    ):
+        conn.close()
+        msg = "No companies match the supplied filter combination"
+        if as_json:
+            _json_out({"error": msg, "code": 2})
+        else:
+            _stderr(msg)
+        raise typer.Exit(2)
+
+    diff = _companies_diff(
+        conn,
+        since_sql=since_sql,
+        until_iso=until_iso,
+        since_iso=since_iso,
+        tier=tier,
+        min_score=min_score,
+        include_closed=include_closed,
+        limit=limit,
+    )
+    conn.close()
+
+    if as_json:
+        _json_out(diff.to_dict())
+        return
+
+    if HAS_RICH:
+        if diff.new_companies:
+            new_table = Table(title=f"New companies since {since_iso}")
+            new_table.add_column("ID", style="dim", width=4)
+            new_table.add_column("Name", style="bold")
+            new_table.add_column("Tier", justify="center")
+            new_table.add_column("Score", justify="right", style="green")
+            new_table.add_column("Active jobs", justify="right")
+            new_table.add_column("First signal")
+            for c in diff.new_companies:
+                new_table.add_row(
+                    str(c.id), c.name, str(c.tier),
+                    f"{c.ai_first_score:.1f}",
+                    str(c.active_jobs_now),
+                    c.first_signal or "—",
+                )
+            console.print(new_table)
+        else:
+            _stderr("No new companies in window.")
+
+        if diff.changed_companies:
+            chg = Table(title=f"Role changes since {since_iso}")
+            chg.add_column("ID", style="dim", width=4)
+            chg.add_column("Company", style="bold")
+            chg.add_column("Tier", justify="center")
+            chg.add_column("Opened", justify="right", style="green")
+            chg.add_column("Closed", justify="right", style="yellow")
+            chg.add_column("Net", justify="right")
+            chg.add_column("Relevant", justify="right")
+            for c in diff.changed_companies:
+                chg.add_row(
+                    str(c.id), c.name, str(c.tier),
+                    str(c.jobs_opened), str(c.jobs_closed),
+                    f"{c.net_delta:+d}",
+                    str(c.relevant_opened),
+                )
+            console.print(chg)
+        else:
+            _stderr("No role changes in window.")
+
+        s = diff.summary
+        _stderr(
+            f"Summary: {s.new_company_count} new companies · "
+            f"{s.changed_company_count} changed · "
+            f"+{s.total_jobs_opened} / -{s.total_jobs_closed} jobs "
+            f"(net {s.net_job_delta:+d})"
+        )
+    else:
+        for c in diff.new_companies:
+            print(f"  NEW [{c.id}] {c.name} tier={c.tier} score={c.ai_first_score:.1f}")
+        for c in diff.changed_companies:
+            print(f"  CHG [{c.id}] {c.name} +{c.jobs_opened} -{c.jobs_closed} (net {c.net_delta:+d})")
+        s = diff.summary
+        print(
+            f"  Summary: {s.new_company_count} new · {s.changed_company_count} changed · "
+            f"+{s.total_jobs_opened}/-{s.total_jobs_closed} (net {s.net_job_delta:+d})"
+        )
+
+
 @app.command()
 def show(
     name: str = typer.Argument(help="Company name (partial match)"),

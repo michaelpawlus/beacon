@@ -125,6 +125,7 @@ The subcommands drive the pluggable discovery pipeline.
 | `beacon companies candidates` | List discovery candidates ranked by evidence-weighted score | `--source NAME` `--status pending\|promoted\|rejected\|all` `--limit N` `--json` |
 | `beacon companies promote <id>` | Move a candidate into `companies` + copy signals into `ai_signals` | `--tier N` (default 4) `--json` |
 | `beacon companies reject <id>` | Mark a candidate rejected so it isn't re-surfaced | `--reason TEXT` `--json` |
+| `beacon companies diff` | Window diff of the company universe — new companies + role-count deltas | `--since DATE\|Nd\|last-week` `--tier N` `--min-score F` `--include-closed` `--limit N` `--json` |
 
 **Sources in v0.1:**
 - `yaml` — curated feed at `beacon/sources/curated/*.yml` (always available, no auth)
