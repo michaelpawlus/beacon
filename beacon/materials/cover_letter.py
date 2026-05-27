@@ -16,53 +16,10 @@ from beacon.db.profile import (
 )
 from beacon.llm.client import generate
 from beacon.llm.prompts import COVER_LETTER_PROMPT, COVER_LETTER_SYSTEM_PROMPT
+from beacon.materials.company_context import build_company_context
 from beacon.materials.resume import extract_requirements
 
-
-def build_company_context(conn: sqlite3.Connection, company_id: int) -> str:
-    """Build a company context string from Phase 1 research data.
-
-    Pulls leadership signals, AI signals, and tools adopted.
-    """
-    parts = []
-
-    company = conn.execute("SELECT * FROM companies WHERE id = ?", (company_id,)).fetchone()
-    if company:
-        parts.append(f"Company: {company['name']}")
-        if company["description"]:
-            parts.append(f"Description: {company['description']}")
-        parts.append(f"AI-First Score: {company['ai_first_score']:.1f}/10 (Tier {company['tier']})")
-        if company["remote_policy"]:
-            parts.append(f"Remote Policy: {company['remote_policy']}")
-
-    # Leadership signals
-    leadership = conn.execute(
-        "SELECT * FROM leadership_signals WHERE company_id = ? ORDER BY impact_level", (company_id,)
-    ).fetchall()
-    if leadership:
-        parts.append("\nLeadership Signals:")
-        for ls in leadership[:5]:
-            parts.append(f"- {ls['leader_name']} ({ls['leader_title']}): {ls['content'][:200]}")
-
-    # AI signals
-    signals = conn.execute(
-        "SELECT * FROM ai_signals WHERE company_id = ? ORDER BY signal_strength DESC", (company_id,)
-    ).fetchall()
-    if signals:
-        parts.append("\nAI Culture Signals:")
-        for s in signals[:5]:
-            parts.append(f"- [{s['signal_type']}] {s['title']}")
-
-    # Tools adopted
-    tools = conn.execute(
-        "SELECT * FROM tools_adopted WHERE company_id = ?", (company_id,)
-    ).fetchall()
-    if tools:
-        parts.append("\nAI Tools Adopted:")
-        for t in tools:
-            parts.append(f"- {t['tool_name']} ({t['adoption_level']})")
-
-    return "\n".join(parts)
+__all__ = ["build_company_context", "build_profile_summary", "generate_cover_letter"]
 
 
 def build_profile_summary(conn: sqlite3.Connection) -> str:

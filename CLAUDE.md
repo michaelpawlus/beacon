@@ -174,6 +174,24 @@ The subcommands drive the pluggable discovery pipeline.
 | `beacon profile add-presentation` | Add a presentation | `--title TEXT` `--event TEXT` `--date DATE` `--status TEXT` ... |
 | `beacon profile set-headshot <path>` | Set headshot image path | |
 
+### Materials Sub-commands (`beacon materials ...`)
+
+Pre-application + application-time artifacts. `resume` and `cover-letter` are
+still exposed under `beacon profile ...` for backward compatibility; the
+`materials` group is the canonical surface for new commands.
+
+| Command | Description | Key Flags |
+|---------|-------------|-----------|
+| `beacon materials interview-brief` | Generate one vault-resident interview prep brief per top-N job match. Joins `match-jobs` rows with company research, skill gaps, optional `stack-quest arcs suggest` arc, and profile talking points. Writes to `$OBSIDIAN_VAULT_PATH/Job Search/interview-briefs/`. | `--top N` (default 5) `--min-fit FLOAT` (default 6.0) `--with-outcomes/--no-with-outcomes` `--vault/--no-vault` `--dry-run` `--json` |
+
+The brief is deterministic — no LLM calls in v1. Each note renders 8 sections:
+Snapshot, Why this matches (fit reasoning + sub-scores), Company posture
+(leadership/AI signals/tools from Phase 1 research), Gap analysis (missing
+skills × `beacon gaps list`), Suggested next move (stack-quest arc that closes
+a missing skill), Talking points (work/projects ranked by skill overlap),
+Prep questions (role-family-templated + dynamic from leadership signals),
+Application checklist.
+
 ### Application Sub-commands (`beacon application ...`)
 
 | Command | Description | Key Flags |

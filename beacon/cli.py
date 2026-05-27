@@ -48,6 +48,7 @@ session_app = typer.Typer(help="Claude Code session logging")
 media_app = typer.Typer(help="Media log — track videos, podcasts, articles")
 network_app = typer.Typer(help="Networking — events and professional contacts")
 gaps_app = typer.Typer(help="Skill gap tracking and analysis")
+materials_app = typer.Typer(help="Application materials (resumes, cover letters, interview briefs)")
 app.add_typer(companies_app, name="companies")
 app.add_typer(job_app, name="job")
 app.add_typer(report_app, name="report")
@@ -60,6 +61,7 @@ app.add_typer(session_app, name="session")
 app.add_typer(media_app, name="media")
 app.add_typer(network_app, name="network")
 app.add_typer(gaps_app, name="gaps")
+app.add_typer(materials_app, name="materials")
 console = Console() if HAS_RICH else None
 
 
@@ -4647,6 +4649,156 @@ def gaps_export(
         for q in quests:
             print(f"  {q['title']}")
             print(f"    {q['description']}")
+
+
+@materials_app.command("interview-brief")
+def materials_interview_brief(
+    top: int = typer.Option(5, "--top", help="Number of top matches to brief"),
+    min_fit: float = typer.Option(6.0, "--min-fit", help="Minimum fit score (passed to match-jobs)"),
+    with_outcomes: bool = typer.Option(True, "--with-outcomes/--no-with-outcomes", help="Weight skills with positive outcomes"),
+    vault: bool = typer.Option(True, "--vault/--no-vault", help="Write to the Obsidian vault via `oj capture`"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Render bodies but don't write"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Generate one vault-resident interview prep brief per top-N job match."""
+    from datetime import datetime, timezone
+
+    from beacon.materials.interview_brief import (
+        build_brief,
+        load_question_templates,
+        pick_arc,
+        render_brief_markdown,
+    )
+    from beacon.research.job_fit import compute_job_fit, load_profile_snapshot
+
+    conn = get_connection()
+    profile = load_profile_snapshot(conn)
+    empty_profile = profile["counts"]["skills"] == 0 and profile["counts"]["work"] == 0
+
+    rows = conn.execute(
+        "SELECT j.*, c.name AS company_name FROM job_listings j "
+        "JOIN companies c ON j.company_id = c.id WHERE j.status = 'active'"
+    ).fetchall()
+
+    matches: list[dict] = []
+    for row in rows:
+        fit = compute_job_fit(conn, row, profile=profile, with_outcomes=with_outcomes)
+        if fit.fit_score < min_fit:
+            continue
+        matches.append({
+            "job_id": row["id"],
+            "company": row["company_name"],
+            "title": row["title"],
+            "location": row["location"],
+            "fit_score": fit.fit_score,
+            "relevance_score": float(row["relevance_score"] or 0.0),
+            "reasons": fit.reasons,
+            "missing": fit.missing,
+            "sub_scores": fit.sub_scores,
+            "url": row["url"],
+            "status": row["status"],
+        })
+    matches.sort(key=lambda m: (m["fit_score"], m["relevance_score"]), reverse=True)
+    matches = matches[:top]
+
+    # Load gaps + (optional) stack-quest arcs once. Gaps come from the local DB
+    # directly to avoid re-shelling out to ourselves; arcs need an external CLI
+    # so we shell out and tolerate failure.
+    from beacon.research.skill_gaps import get_skill_gaps
+    gap_rows = get_skill_gaps(conn)
+    gaps = [dict(g) for g in gap_rows]
+
+    arcs: list[dict] = []
+    try:
+        sq_bin = shutil.which("stack-quest")
+        if sq_bin:
+            proc = subprocess.run(
+                [sq_bin, "arcs", "suggest", "--json"],
+                capture_output=True, text=True, timeout=15,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                parsed = json.loads(proc.stdout)
+                if isinstance(parsed, list):
+                    arcs = parsed
+                elif isinstance(parsed, dict):
+                    arcs = parsed.get("arcs") or parsed.get("suggestions") or []
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
+        arcs = []
+
+    templates = load_question_templates()
+    briefs_out: list[dict] = []
+    for m in matches:
+        brief = build_brief(conn, m, gaps=gaps, arc_suggestion=pick_arc(arcs, m["missing"]),
+                            question_templates=templates)
+        body = render_brief_markdown(brief)
+
+        result = {
+            "job_id": brief["job_id"],
+            "company": brief["company"],
+            "title": brief["title"],
+            "fit_score": brief["fit_score"],
+            "vault_path": None,
+            "arc_suggested": (brief.get("arc") or {}).get("id") or (brief.get("arc") or {}).get("slug"),
+            "missing_skills": brief["missing"],
+        }
+
+        if dry_run or not vault:
+            result["body_preview"] = body[:200]
+        else:
+            from datetime import date as _date
+            today = _date.today().isoformat()
+            company_name = brief.get("company") or "unknown"
+            role_name = brief.get("title") or "unknown"
+            title = f"{today} {_slugify(company_name)} {_slugify(role_name)} interview-brief"
+            try:
+                info = _capture_to_vault(
+                    body=body,
+                    folder="Job Search/interview-briefs",
+                    title=title,
+                    fm_type="interview-brief",
+                    company=company_name,
+                    role=role_name,
+                    extra_tags=["interview-brief", _slugify(company_name)],
+                )
+                result["vault_path"] = info.get("path")
+            except RuntimeError as e:
+                result["error"] = str(e)
+
+        briefs_out.append(result)
+
+    conn.close()
+
+    payload = {
+        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "top_n": top,
+        "briefs": briefs_out,
+    }
+    if empty_profile:
+        payload["warning"] = "profile is empty; run beacon profile interview"
+
+    if as_json:
+        _json_out(payload)
+        return
+
+    if empty_profile:
+        _stderr("Profile is empty. Run `beacon profile interview` to populate it.")
+    if not briefs_out:
+        _print("No matches met --min-fit. Try lowering the threshold or running `beacon match-jobs`.")
+        return
+
+    for b in briefs_out:
+        path = b.get("vault_path") or ("(dry-run)" if dry_run else "(not written)")
+        _print(
+            f"  [{b['job_id']}] fit={_fmt(b['fit_score'])} {b['company']}: {b['title']}"
+            f"\n    → {path}"
+        )
+
+
+def _fmt(value) -> str:
+    try:
+        return f"{float(value):.1f}"
+    except (TypeError, ValueError):
+        return "—"
 
 
 def main():

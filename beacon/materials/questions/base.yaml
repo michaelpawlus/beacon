@@ -1,0 +1,48 @@
+# Templated interview prep questions per role family.
+#
+# Each role family has a fixed set of "ask them" prep prompts. These are
+# *questions the candidate is preparing to ask*, not questions the interviewer
+# will ask. Dynamic questions (based on leadership signals, recent funding,
+# etc.) are layered on top by interview_brief.py.
+
+default:
+  - What does success in this role look like in 90 days, and at 12 months?
+  - How does this team measure impact, and how often do those metrics get revisited?
+  - What's the biggest cross-team dependency this role has to manage?
+  - Walk me through how a typical decision gets made on this team — RFC, single-threaded owner, working backwards doc?
+  - What would make someone in this role unsuccessful, and how would that show up early?
+
+engineer:
+  - What's the on-call rotation look like, and how mature is the runbook coverage?
+  - How does this team trade off shipping velocity vs. paying down platform debt?
+  - What's the deploy cadence today, and what's blocking it from being faster?
+  - How is AI tooling (Copilot, Cursor, Claude Code) used day-to-day on this team?
+  - What's an engineering decision the team made in the last six months that you'd revisit?
+
+scientist:
+  - How does research output move from notebook to production here?
+  - What's the team's policy on publishing — internal-only, blog posts, papers?
+  - How are research priorities set, and who has the final call on what gets shipped?
+  - What does the experiment / model evaluation infrastructure look like today?
+  - Where does this role sit between "applied science" and "research science" on a given week?
+
+analyst:
+  - How does this team turn analysis into decisions — recurring forums, written memos, dashboards?
+  - What's the split between ad-hoc analysis, recurring reporting, and platform work?
+  - How is data quality owned — by analysts, engineers, or a separate data platform team?
+  - What's the most impactful analysis this team has shipped in the last year?
+  - How is AI tooling changing how analysts on this team work?
+
+manager:
+  - What does the manager's day-to-day look like — IC%, hiring%, planning%?
+  - How is performance calibrated across teams, and how often?
+  - What's the team's biggest gap right now — headcount, skills, scope clarity?
+  - Walk me through a recent hire that worked well and one that didn't.
+  - How does this manager's manager evaluate this team's success?
+
+architect:
+  - What's the architecture decision record (ADR) culture here?
+  - How does this role balance designing new systems vs. unblocking existing teams?
+  - Where's the biggest architectural bet the company is making right now, and why?
+  - How are cross-cutting concerns (auth, observability, data) owned?
+  - What does mentorship and IC growth look like for senior+ engineers in this org?
