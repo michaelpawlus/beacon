@@ -70,6 +70,30 @@ class SourceAdapter(ABC):
         """
         ...
 
+    def fetch_for(self, company: dict) -> Candidate | None:
+        """Return current evidence for an already-known company, or None.
+
+        Used by `beacon companies refresh-signals` to re-fetch evidence for a
+        promoted company. Default impl iterates `fetch()` and matches on
+        domain, then normalized name. Adapters with a cheaper direct lookup
+        (e.g. Crunchbase by UUID) should override.
+
+        Args:
+            company: dict with at least `name`; may include `domain`,
+                `source`, `source_ref` from prior promotion provenance.
+        """
+        from beacon.sources.dedupe import normalize_name
+
+        target_name = normalize_name(company.get("name") or "")
+        target_domain = (company.get("domain") or "").lower() or None
+
+        for candidate in self.fetch():
+            if target_domain and (candidate.domain or "").lower() == target_domain:
+                return candidate
+            if target_name and normalize_name(candidate.name) == target_name:
+                return candidate
+        return None
+
 
 class SourceError(Exception):
     """Base class for source adapter errors."""

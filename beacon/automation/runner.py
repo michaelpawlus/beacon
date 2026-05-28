@@ -82,11 +82,31 @@ def run_digest(conn: sqlite3.Connection, config: BeaconConfig) -> dict:
 
 
 def run_automation_cycle(conn: sqlite3.Connection, config: BeaconConfig) -> dict:
-    """Run a full automation cycle: scan → filter → notify → log."""
+    """Run a full automation cycle: refresh-signals → scan → filter → notify → log."""
     started_at = time.time()
-    result = {"jobs_found": 0, "new_relevant_jobs": 0, "notifications_sent": 0, "errors": None}
+    result = {
+        "jobs_found": 0,
+        "new_relevant_jobs": 0,
+        "notifications_sent": 0,
+        "signals_refreshed": 0,
+        "errors": None,
+    }
 
     errors_list = []
+
+    # Step 0: Refresh evidence for stale companies before scoring/scanning.
+    try:
+        from beacon.research.signal_refresh import refresh_signals
+        refresh_summary = refresh_signals(conn, since_days=90, limit=25)
+        t = refresh_summary.totals
+        result["signals_refreshed"] = (
+            t["ai_signals_added"]
+            + t["leadership_signals_added"]
+            + t["tools_adopted_added"]
+        )
+    except Exception as e:
+        errors_list.append(f"refresh-signals: {e}")
+        logger.error("Signal refresh step failed: %s", e)
 
     # Step 1: Scan
     try:

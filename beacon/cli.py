@@ -745,6 +745,119 @@ def companies_diff_command(
         )
 
 
+@companies_app.command("refresh-signals")
+def companies_refresh_signals(
+    since: int = typer.Option(
+        90, "--since", help="Refresh companies whose newest signal is older than N days"
+    ),
+    company: str = typer.Option(
+        None, "--company", help="Refresh just this company (exact match, case-insensitive)"
+    ),
+    tier: int = typer.Option(None, "--tier", help="Restrict to companies in this tier (1-4)"),
+    source: str = typer.Option(
+        None, "--source", help="Only ask this one source adapter (default: all enabled)"
+    ),
+    limit: int = typer.Option(50, "--limit", help="Cap how many companies are refreshed per run"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="List what would be refreshed; don't write rows"
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Re-fetch evidence for known companies, stalest-first."""
+    from beacon.research.signal_refresh import refresh_signals
+
+    if company and tier is not None:
+        msg = "--company and --tier are mutually exclusive"
+        if as_json:
+            _json_out({"error": msg, "code": 1})
+        else:
+            _stderr(f"Error: {msg}")
+        raise typer.Exit(1)
+
+    conn = get_connection()
+    try:
+        summary = refresh_signals(
+            conn,
+            since_days=since,
+            company=company,
+            tier=tier,
+            source=source,
+            limit=limit,
+            dry_run=dry_run,
+        )
+    except ValueError as e:
+        conn.close()
+        if as_json:
+            _json_out({"error": str(e), "code": 1})
+        else:
+            _stderr(f"Error: {e}")
+        raise typer.Exit(1)
+    conn.close()
+
+    if summary.companies_considered == 0:
+        if as_json:
+            _json_out(summary.to_dict())
+        else:
+            _stderr("No companies match the supplied filters.")
+        raise typer.Exit(2)
+
+    if as_json:
+        _json_out(summary.to_dict())
+        return
+
+    label = "Would refresh" if dry_run else "Refreshed"
+    _print(
+        f"[bold]{label}[/bold] {summary.companies_refreshed}/{summary.companies_considered} "
+        f"companies in {summary.duration_seconds:.1f}s"
+        if HAS_RICH
+        else f"{label} {summary.companies_refreshed}/{summary.companies_considered} "
+             f"companies in {summary.duration_seconds:.1f}s"
+    )
+
+    if summary.results and HAS_RICH:
+        tbl = Table(title=f"{label} signals (since {since}d)")
+        tbl.add_column("ID", style="dim", width=4)
+        tbl.add_column("Company", style="bold")
+        tbl.add_column("Tier", justify="center")
+        tbl.add_column("Newest before")
+        tbl.add_column("Newest after")
+        tbl.add_column("AI", justify="right")
+        tbl.add_column("Lead", justify="right")
+        tbl.add_column("Tools", justify="right")
+        tbl.add_column("Dupes", justify="right", style="dim")
+        for r in summary.results:
+            tbl.add_row(
+                str(r.company_id),
+                r.name,
+                str(r.tier or "—"),
+                r.newest_signal_before or "—",
+                r.newest_signal_after or "—",
+                str(r.signals_added["ai_signals"]),
+                str(r.signals_added["leadership_signals"]),
+                str(r.signals_added["tools_adopted"]),
+                str(r.duplicates_skipped),
+            )
+        console.print(tbl)
+    elif summary.results:
+        for r in summary.results:
+            print(
+                f"  [{r.company_id}] {r.name}: "
+                f"+{r.signals_added['ai_signals']} ai, "
+                f"+{r.signals_added['leadership_signals']} lead, "
+                f"+{r.signals_added['tools_adopted']} tools, "
+                f"{r.duplicates_skipped} dupes"
+            )
+
+    t = summary.totals
+    _stderr(
+        f"Totals: +{t['ai_signals_added']} ai_signals · "
+        f"+{t['leadership_signals_added']} leadership · "
+        f"+{t['tools_adopted_added']} tools · "
+        f"{t['duplicates_skipped']} duplicates · "
+        f"{t['sources_failed']} source failures"
+    )
+
+
 @app.command()
 def show(
     name: str = typer.Argument(help="Company name (partial match)"),
@@ -848,14 +961,159 @@ def show(
 
 
 @app.command(name="scores")
-def refresh_scores():
-    """Recompute all company scores."""
-    from beacon.research.scoring import refresh_all_scores
+def refresh_scores(
+    since: int = typer.Option(
+        None,
+        "--since",
+        help="Only recompute companies whose last_computed_at is older than N days, "
+             "or whose newest signal is newer than the last compute.",
+    ),
+    company: str = typer.Option(
+        None, "--company", help="Recompute just this company (exact match, case-insensitive)"
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress per-company log lines"),
+):
+    """Recompute company scores. Flags scope the recompute; bare command does all."""
+    from beacon.research.scoring import compute_composite_score, refresh_all_scores, refresh_score
+
     conn = get_connection()
-    count = refresh_all_scores(conn)
+
+    # Bare command — keep behavior identical for safety.
+    if since is None and company is None:
+        count = refresh_all_scores(conn)
+        conn.close()
+        if as_json:
+            _json_out({
+                "since_days": None,
+                "filters": {"company": None},
+                "recomputed": count,
+                "skipped": 0,
+                "results": [],
+            })
+            return
+        msg = f"[green]✓[/green] Refreshed scores for {count} companies"
+        _print(msg if HAS_RICH else f"✓ Refreshed scores for {count} companies")
+        return
+
+    if company:
+        rows = conn.execute(
+            "SELECT id, name FROM companies WHERE LOWER(name) = LOWER(?)",
+            (company,),
+        ).fetchall()
+        all_rows = rows
+    else:
+        all_rows = conn.execute("SELECT id, name FROM companies").fetchall()
+
+    if not all_rows:
+        conn.close()
+        msg = "No companies match the supplied filters"
+        if as_json:
+            _json_out({"error": msg, "code": 2})
+        else:
+            _stderr(msg)
+        raise typer.Exit(2)
+
+    # When --since is set, only pick stale or signal-newer-than-compute rows.
+    to_recompute: list = []
+    skipped = 0
+    if since is not None and not company:
+        for r in all_rows:
+            cid = r["id"]
+            sb = conn.execute(
+                "SELECT last_computed_at FROM score_breakdown WHERE company_id = ?",
+                (cid,),
+            ).fetchone()
+            newest = conn.execute(
+                """
+                SELECT MAX(date_observed) AS d FROM (
+                    SELECT date_observed FROM ai_signals WHERE company_id = ?
+                    UNION ALL
+                    SELECT date_observed FROM leadership_signals WHERE company_id = ?
+                    UNION ALL
+                    SELECT date_observed FROM tools_adopted WHERE company_id = ?
+                )
+                """,
+                (cid, cid, cid),
+            ).fetchone()
+            last_computed = sb["last_computed_at"] if sb else None
+            newest_signal = newest["d"] if newest else None
+
+            stale_by_days = False
+            if last_computed is None:
+                stale_by_days = True
+            else:
+                lc_row = conn.execute(
+                    "SELECT julianday('now') - julianday(?) AS age_days",
+                    (last_computed,),
+                ).fetchone()
+                stale_by_days = (lc_row["age_days"] or 0) > since
+
+            signal_after_compute = (
+                newest_signal is not None
+                and last_computed is not None
+                and newest_signal > last_computed[:10]
+            )
+
+            if stale_by_days or signal_after_compute:
+                to_recompute.append(r)
+            else:
+                skipped += 1
+    else:
+        to_recompute = list(all_rows)
+
+    results = []
+    for r in to_recompute:
+        cid = r["id"]
+        before_row = conn.execute(
+            "SELECT composite_score, recency_score FROM score_breakdown WHERE company_id = ?",
+            (cid,),
+        ).fetchone()
+        composite_before = before_row["composite_score"] if before_row else None
+        recency_before = before_row["recency_score"] if before_row else None
+
+        scores_after = compute_composite_score(conn, cid)
+        refresh_score(conn, cid)
+
+        delta = (
+            round(scores_after["composite_score"] - composite_before, 2)
+            if composite_before is not None
+            else None
+        )
+        results.append({
+            "company_id": cid,
+            "name": r["name"],
+            "composite_before": composite_before,
+            "composite_after": scores_after["composite_score"],
+            "delta": delta,
+            "recency_before": recency_before,
+            "recency_after": scores_after["recency_score"],
+        })
+        if not quiet and not as_json:
+            arrow = "→"
+            cb = f"{composite_before:.2f}" if composite_before is not None else "—"
+            _print(
+                f"  [{cid}] {r['name']}: {cb} {arrow} {scores_after['composite_score']:.2f}"
+            )
+
     conn.close()
-    msg = f"[green]✓[/green] Refreshed scores for {count} companies"
-    _print(msg if HAS_RICH else f"✓ Refreshed scores for {count} companies")
+
+    if as_json:
+        _json_out({
+            "since_days": since,
+            "filters": {"company": company},
+            "recomputed": len(results),
+            "skipped": skipped,
+            "results": results,
+        })
+        return
+
+    summary = (
+        f"[green]✓[/green] Recomputed {len(results)} companies, skipped {skipped}"
+        if HAS_RICH
+        else f"✓ Recomputed {len(results)} companies, skipped {skipped}"
+    )
+    _print(summary)
 
 
 @app.command()

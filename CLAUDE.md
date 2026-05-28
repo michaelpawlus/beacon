@@ -104,7 +104,7 @@ file-write, no LLM round-trip.
 | `beacon init [--seed]` | Initialize DB, optionally seed 38 companies | `--seed` (default true) |
 | `beacon companies` | List companies by AI-first score | `--tier N` `--min-score N` `--tools TEXT` `--limit N` `--json` |
 | `beacon show <name>` | Detailed company view (signals, tools, jobs) | `--json` |
-| `beacon scores` | Recompute all company scores | |
+| `beacon scores` | Recompute company scores. Bare command refreshes all; flags scope the recompute | `--since DAYS` `--company NAME` `--quiet` `--json` |
 | `beacon stats` | Database statistics | `--json` |
 | `beacon export <format>` | Export as markdown/csv/json/report | `--min-score N` `--output PATH` |
 | `beacon scan` | Scan career pages for jobs | `--company TEXT` `--platform TEXT` `--min-score N` `--json` |
@@ -126,6 +126,7 @@ The subcommands drive the pluggable discovery pipeline.
 | `beacon companies promote <id>` | Move a candidate into `companies` + copy signals into `ai_signals` | `--tier N` (default 4) `--json` |
 | `beacon companies reject <id>` | Mark a candidate rejected so it isn't re-surfaced | `--reason TEXT` `--json` |
 | `beacon companies diff` | Window diff of the company universe — new companies + role-count deltas | `--since DATE\|Nd\|last-week` `--tier N` `--min-score F` `--include-closed` `--limit N` `--json` |
+| `beacon companies refresh-signals` | Re-fetch evidence for known companies (stalest-first) so recency scores don't silently rot | `--since DAYS` (default 90) `--company NAME` `--tier N` `--source NAME` `--limit N` (default 50) `--dry-run` `--json` |
 
 **Sources in v0.1:**
 - `yaml` — curated feed at `beacon/sources/curated/*.yml` (always available, no auth)
@@ -354,6 +355,13 @@ beacon companies discover --source crunchbase --limit 25 --json
 beacon companies candidates --status pending --json | jq '.[0:5]'
 beacon companies promote 7 --tier 3 --json
 beacon companies reject 8 --reason "not actually AI-native" --json
+
+# Refresh evidence for companies whose newest signal is >90 days old
+beacon companies refresh-signals --since 90 --limit 25 --json | jq '.totals'
+# Targeted: refresh just one company
+beacon companies refresh-signals --company "Anthropic" --json
+# After a refresh, recompute scores for any company whose data has shifted
+beacon scores --since 7 --json | jq '.recomputed'
 
 # Find relevant jobs at a specific company
 beacon jobs --company "Anthropic" --min-relevance 7 --json
