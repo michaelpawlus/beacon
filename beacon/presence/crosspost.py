@@ -7,7 +7,6 @@ Generates platform-specific versions of blog posts for:
 - Dev.to (liquid tags frontmatter)
 """
 
-import sqlite3
 
 from beacon.presence.adapters import (
     adapt_for_blog_markdown,

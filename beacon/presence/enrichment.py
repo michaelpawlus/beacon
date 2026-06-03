@@ -43,7 +43,10 @@ def generate_missing_info_todos(conn: sqlite3.Connection) -> list[str]:
             elif exp["key_achievements"]:
                 achievements = json.loads(exp["key_achievements"])
                 if len(achievements) < 3:
-                    todos.append(f"[ ] Add more achievements for {exp['title']} at {exp['company']} (have {len(achievements)}, recommend 3+)")
+                    todos.append(
+                        f"[ ] Add more achievements for {exp['title']} at {exp['company']} "
+                        f"(have {len(achievements)}, recommend 3+)"
+                    )
             if not exp["technologies"]:
                 todos.append(f"[ ] Add technologies for {exp['title']} at {exp['company']}")
             if not exp["metrics"]:
@@ -98,18 +101,16 @@ def run_enrichment_interview(
 
     Returns the enriched accomplishment data dict, or None if cancelled.
     """
-    from rich.prompt import Confirm, Prompt
+    from rich.prompt import Prompt
 
     console.print("\n[bold]Enrichment Interview[/bold]")
     console.print("Let's capture a professional accomplishment in detail.\n")
 
     # If work_experience_id specified, show context
-    work_context = ""
     if work_experience_id:
         exp = get_work_experience_by_id(conn, work_experience_id)
         if exp:
             console.print(f"[dim]Context: {exp['title']} at {exp['company']}[/dim]\n")
-            work_context = f"{exp['title']} at {exp['company']}"
 
     # Get the raw accomplishment statement
     statement = Prompt.ask("Describe an accomplishment (one sentence)")

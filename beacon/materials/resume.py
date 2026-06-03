@@ -108,7 +108,9 @@ def _format_profile_for_prompt(profile_data: dict) -> str:
         if exp["description"]:
             parts.append(exp["description"])
         if exp["key_achievements"]:
-            achievements = json.loads(exp["key_achievements"]) if isinstance(exp["key_achievements"], str) else exp["key_achievements"]
+            achievements = exp["key_achievements"]
+            if isinstance(achievements, str):
+                achievements = json.loads(achievements)
             for a in achievements:
                 parts.append(f"- {a}")
         if exp["technologies"]:

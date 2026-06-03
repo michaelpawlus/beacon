@@ -25,7 +25,9 @@ def _validate_date(date_str: str) -> bool:
     return bool(re.match(r"^\d{4}-\d{2}(-\d{2})?$", date_str))
 
 
-def _collect_list_input(console: Console, prompt_text: str = "Enter items (one per line, empty line to finish)") -> list[str]:
+def _collect_list_input(
+    console: Console, prompt_text: str = "Enter items (one per line, empty line to finish)"
+) -> list[str]:
     """Collect multi-line input for bullet point lists."""
     console.print(f"  [dim]{prompt_text}[/dim]")
     items = []

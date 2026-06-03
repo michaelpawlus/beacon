@@ -6,8 +6,8 @@ with the updated constraint while preserving all existing data.
 Usage: python3 migrations/add_book_pub_type.py
 """
 
-import sqlite3
 import shutil
+import sqlite3
 from pathlib import Path
 
 DB_PATH = Path("data/beacon.db")

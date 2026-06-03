@@ -3,7 +3,6 @@
 import json
 import sqlite3
 
-
 # --- Work Experiences ---
 
 def add_work_experience(

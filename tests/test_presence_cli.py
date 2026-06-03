@@ -1,6 +1,5 @@
 """Tests for Phase 4 presence CLI commands."""
 
-import json
 from unittest.mock import patch
 
 import pytest

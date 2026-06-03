@@ -6,7 +6,6 @@ CRUD operations for content_drafts, content_calendar, and accomplishments tables
 import json
 import sqlite3
 
-
 # --- Content Drafts ---
 
 def add_content_draft(

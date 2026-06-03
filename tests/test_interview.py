@@ -1,6 +1,6 @@
 """Tests for the interactive profile interview tool."""
 
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner

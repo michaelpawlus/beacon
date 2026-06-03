@@ -1,6 +1,5 @@
 """Tests for beacon.presence.adapters — platform format adapters."""
 
-import pytest
 
 from beacon.presence.adapters import (
     adapt_for_blog_markdown,

@@ -1,7 +1,6 @@
 """Tests for application tracking and supplementary materials."""
 
-import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
@@ -12,11 +11,8 @@ from beacon.db.jobs import upsert_job
 from beacon.db.profile import (
     add_application,
     add_project,
-    add_skill,
     add_work_experience,
-    get_application_by_id,
     get_applications,
-    update_application,
 )
 from beacon.llm.client import LLMResponse
 

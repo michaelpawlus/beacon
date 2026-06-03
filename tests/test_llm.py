@@ -1,7 +1,6 @@
 """Tests for LLM integration layer."""
 
 import json
-import sys
 from unittest.mock import MagicMock, patch
 
 import pytest

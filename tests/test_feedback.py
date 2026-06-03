@@ -1,8 +1,9 @@
 """Tests for Beacon feedback tracking system (Phase 5, Step 2)."""
 
+from unittest.mock import patch
+
 import pytest
 from typer.testing import CliRunner
-from unittest.mock import patch
 
 from beacon.db.connection import get_connection, init_db
 from beacon.db.feedback import (

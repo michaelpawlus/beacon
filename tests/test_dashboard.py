@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
-from beacon.dashboard import DashboardData, gather_dashboard_data
+from beacon.dashboard import gather_dashboard_data
 from beacon.dashboard_render import render_dashboard
 from beacon.db.connection import get_connection, init_db
 
@@ -199,8 +199,9 @@ class TestDashboardRender:
         assert "Beacon Dashboard" in captured.out
 
     def test_render_with_rich(self, db):
-        from rich.console import Console
         from io import StringIO
+
+        from rich.console import Console
         conn, _ = db
         _insert_company(conn, "Anthropic", 9.2)
         cid = conn.execute("SELECT id FROM companies").fetchone()["id"]
@@ -213,8 +214,9 @@ class TestDashboardRender:
         assert "Beacon Dashboard" in result
 
     def test_render_compact_with_rich(self, db):
-        from rich.console import Console
         from io import StringIO
+
+        from rich.console import Console
         conn, _ = db
         data = gather_dashboard_data(conn)
         output = StringIO()
