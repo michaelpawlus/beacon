@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from beacon.db.connection import get_connection, init_db
+from beacon.db.feedback import record_outcome
 from beacon.db.jobs import upsert_job
 from beacon.db.profile import (
     add_application,
@@ -13,7 +14,6 @@ from beacon.db.profile import (
     add_skill,
     add_work_experience,
 )
-from beacon.db.feedback import record_outcome
 from beacon.research import job_fit
 from beacon.research.job_fit import compute_job_fit, get_or_extract_requirements
 

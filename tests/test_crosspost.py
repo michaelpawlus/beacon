@@ -1,8 +1,7 @@
 """Tests for beacon.presence.crosspost — multi-platform content distribution."""
 
-import pytest
 
-from beacon.presence.crosspost import crosspost_blog, _make_linkedin_teaser
+from beacon.presence.crosspost import _make_linkedin_teaser, crosspost_blog
 
 
 class TestCrosspostBlog:

@@ -1,12 +1,11 @@
 """Tests for beacon.presence.enrichment — enrichment interview system."""
 
-import json
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from beacon.db.connection import get_connection, init_db
-from beacon.db.content import add_accomplishment, get_accomplishment_by_id, get_accomplishments
+from beacon.db.content import add_accomplishment, get_accomplishments
 from beacon.db.profile import (
     add_education,
     add_project,

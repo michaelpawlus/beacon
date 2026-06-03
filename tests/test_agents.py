@@ -6,7 +6,7 @@ import pytest
 from typer.testing import CliRunner
 
 from beacon.agents.application_prep import ApplicationPrepAgent
-from beacon.agents.base import AgentResult, AgentTask, BaseAgent
+from beacon.agents.base import AgentTask, BaseAgent
 from beacon.agents.job_analyst import JobAnalystAgent
 from beacon.agents.orchestrator import Orchestrator
 from beacon.agents.researcher import ResearchAgent

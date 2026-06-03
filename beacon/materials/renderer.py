@@ -17,7 +17,6 @@ def render_docx(resume: TailoredResume, output_path: str | Path) -> Path:
     """
     try:
         from docx import Document
-        from docx.shared import Pt
     except ImportError:
         raise RuntimeError("python-docx not installed. Run: pip install beacon[docs]")
 

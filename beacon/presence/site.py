@@ -93,8 +93,6 @@ def generate_resume_page(conn: sqlite3.Connection) -> str:
 
 def generate_project_page(project: sqlite3.Row) -> str:
     """Generate a project page as markdown with YAML frontmatter."""
-    slug = project["name"].lower().replace(" ", "-")
-
     parts = [
         "---",
         f'title: "{project["name"]}"',

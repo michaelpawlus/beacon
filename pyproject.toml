@@ -67,3 +67,6 @@ select = ["E", "F", "I", "N", "W"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "network: hits live external services; deselected in CI with -m 'not network'. No test is currently marked — the suite is fully mocked/hermetic — but the marker is registered so any future live-call test can opt in.",
+]

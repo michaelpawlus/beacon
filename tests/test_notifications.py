@@ -2,11 +2,9 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 from typer.testing import CliRunner
 
 from beacon.config import BeaconConfig
-from beacon.notifications.base import BaseNotifier
 from beacon.notifications.desktop import DesktopNotifier
 from beacon.notifications.email import EmailNotifier
 from beacon.notifications.formatters import format_action_items, format_digest, format_new_jobs_alert

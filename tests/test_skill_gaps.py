@@ -1,6 +1,5 @@
 """Tests for skill gap analysis and tracking."""
 
-import json
 
 import pytest
 

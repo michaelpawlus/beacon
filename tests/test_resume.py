@@ -1,7 +1,6 @@
 """Tests for resume tailoring engine."""
 
-import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -14,13 +13,13 @@ from beacon.db.profile import (
     add_work_experience,
 )
 from beacon.llm.client import LLMResponse
+from beacon.materials.renderer import render_markdown
 from beacon.materials.resume import (
     TailoredResume,
     _format_profile_for_prompt,
     select_relevant_items,
     tailor_resume,
 )
-from beacon.materials.renderer import render_markdown
 
 
 @pytest.fixture
@@ -176,7 +175,7 @@ class TestTailorResume:
             text="# Resume", model="test", input_tokens=10, output_tokens=20,
         )
 
-        result = tailor_resume(db, job["id"])
+        tailor_resume(db, job["id"])
         # Should have used the title "ML Engineer" as the description
         call_args = mock_structured.call_args[0][0]
         assert "ML Engineer" in call_args

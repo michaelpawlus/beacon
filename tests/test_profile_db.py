@@ -5,6 +5,7 @@ import json
 import pytest
 
 from beacon.db.connection import get_connection, init_db
+from beacon.db.jobs import upsert_job
 from beacon.db.profile import (
     add_application,
     add_education,
@@ -18,8 +19,8 @@ from beacon.db.profile import (
     delete_publication,
     delete_skill,
     delete_work_experience,
-    get_applications,
     get_application_by_id,
+    get_applications,
     get_education,
     get_education_by_id,
     get_project_by_id,
@@ -37,7 +38,6 @@ from beacon.db.profile import (
     update_skill,
     update_work_experience,
 )
-from beacon.db.jobs import upsert_job
 
 
 @pytest.fixture

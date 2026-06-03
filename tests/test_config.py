@@ -1,7 +1,6 @@
 """Tests for Beacon configuration system and logging setup."""
 
 import logging
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest

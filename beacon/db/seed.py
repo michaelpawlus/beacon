@@ -811,7 +811,7 @@ SEED_LEADERSHIP_SIGNALS = [
         "company_name": "Stripe",
         "leader_name": "Stripe Engineering",
         "leader_title": "Engineering Leadership",
-        "signal_type": "engineering_blog",
+        "signal_type": "policy",
         "content": "Minions are fully unattended one-shot coding agents merging 1,000+ PRs per week. Humans review but do not write code. Uses blueprints alternating deterministic and agentic nodes.",
         "source_url": "https://stripe.dev/blog/minions-stripes-one-shot-end-to-end-coding-agents",
         "date_observed": "2026-01-15",

@@ -1,6 +1,5 @@
 """Tests for beacon.presence.site — personal website data export."""
 
-import json
 
 import pytest
 
@@ -255,7 +254,7 @@ class TestExportSiteContent:
 
     def test_creates_output_directory(self, db, tmp_path):
         output_dir = tmp_path / "new_dir" / "content"
-        files = export_site_content(db, str(output_dir))
+        export_site_content(db, str(output_dir))
         assert output_dir.exists()
 
     def test_file_content_has_frontmatter(self, db, tmp_path):

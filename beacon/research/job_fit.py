@@ -38,7 +38,6 @@ from beacon.research.job_scoring import (
     SUPPORTING_KEYWORDS,
 )
 
-
 WEIGHTS = {
     "skill_overlap": 0.45,
     "title_trajectory": 0.20,
@@ -336,12 +335,12 @@ def _score_outcome_lift(
     """Skills the user has applied with that produced positive outcomes
     (anything past `no_response` / `rejection_*`) get a bonus.
     """
-    POSITIVE = ("phone_screen", "technical", "onsite", "offer", "accepted")
+    positive = ("phone_screen", "technical", "onsite", "offer", "accepted")
     rows = conn.execute(
         "SELECT outcome FROM application_outcomes WHERE outcome IN ({})".format(
-            ",".join("?" * len(POSITIVE))
+            ",".join("?" * len(positive))
         ),
-        POSITIVE,
+        positive,
     ).fetchall()
     positive_count = len(rows)
     if positive_count == 0:

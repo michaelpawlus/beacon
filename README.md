@@ -1,5 +1,7 @@
 # Beacon
 
+[![CI](https://github.com/michaelpawlus/beacon/actions/workflows/ci.yml/badge.svg)](https://github.com/michaelpawlus/beacon/actions/workflows/ci.yml)
+
 **AI-First Job Search Platform**
 
 A curated, evidence-backed database of companies where AI tools aren't just allowed — they're expected. Every entry includes public evidence of leadership buy-in, tool adoption, and cultural integration — plus automated job scanning, relevance scoring, and LLM-powered application materials.
