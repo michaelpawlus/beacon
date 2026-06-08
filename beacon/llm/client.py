@@ -74,6 +74,41 @@ def generate(
     )
 
 
+def web_search(
+    prompt: str,
+    system: str | None = None,
+    model: str = DEFAULT_MODEL,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_uses: int = 4,
+) -> str:
+    """Answer a prompt with the server-side web_search tool enabled.
+
+    Returns the concatenated text the model produced after searching. Raises
+    RuntimeError when the SDK/API key is missing (same contract as ``generate``).
+    """
+    client = get_client()
+
+    kwargs = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": prompt}],
+        "tools": [{
+            "type": "web_search_20250305",
+            "name": "web_search",
+            "max_uses": max_uses,
+        }],
+    }
+    if system:
+        kwargs["system"] = system
+
+    response = client.messages.create(**kwargs)
+
+    # The response interleaves tool-use, tool-result, and text blocks. We only
+    # want the model's synthesized prose (the final text blocks).
+    parts = [block.text for block in response.content if getattr(block, "type", None) == "text"]
+    return "\n".join(parts).strip()
+
+
 def generate_structured(
     prompt: str,
     system: str | None = None,

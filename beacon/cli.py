@@ -3282,6 +3282,103 @@ def presence_calendar_seed():
     _print(f"[green]✓[/green] Created {count} calendar entries" if HAS_RICH else f"✓ Created {count} calendar entries")
 
 
+@presence_app.command("radar")
+def presence_radar(
+    since: int = typer.Option(30, "--since", help="Look back this many days for recent work"),
+    platform: str = typer.Option(None, "--platform", "-p", help="Only opportunities routed to this platform"),
+    limit: int = typer.Option(15, "--limit", "-l", help="Max opportunities to return"),
+    web: bool = typer.Option(True, "--web/--no-web", help="Pull live trending discussion (needs ANTHROPIC_API_KEY + network)"),
+    seed_calendar: bool = typer.Option(False, "--seed-calendar", help="Write the surfaced opportunities into the content calendar"),
+    vault: bool = typer.Option(False, "--vault", help="Write the radar brief to the Obsidian vault via `oj capture`"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Compute + print but never write (calendar/vault)"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Sweep recent work + live discussion into a ranked content backlog."""
+    from beacon.presence.radar import build_radar, render_radar_markdown
+    from beacon.presence.radar import seed_calendar as _seed
+
+    conn = get_connection()
+    if not as_json:
+        _stderr("Scanning recent work" + (" + trending discussion..." if web else "..."))
+
+    payload = build_radar(conn, since_days=since, platform=platform, limit=limit, web=web)
+
+    seeded = 0
+    if seed_calendar and not dry_run:
+        seeded = _seed(conn, payload["opportunities"])
+    payload["seeded"] = seeded
+
+    vault_path = None
+    if vault and not dry_run:
+        body = render_radar_markdown(payload)
+        from datetime import date as _date
+        today = _date.today().isoformat()
+        try:
+            info = _capture_to_vault(
+                body=body,
+                folder="Job Search/posting-radar",
+                title=f"{today} posting-radar",
+                fm_type="posting-radar",
+                company="",
+                role="",
+                extra_tags=["posting-radar", "presence"],
+            )
+            vault_path = info.get("path")
+        except RuntimeError as e:
+            payload["warnings"].append(f"vault write skipped: {e}")
+    payload["vault_path"] = vault_path
+
+    conn.close()
+
+    if as_json:
+        _json_out(payload)
+        return
+
+    for w in payload.get("warnings", []):
+        _stderr(f"⚠️  {w}")
+
+    if HAS_RICH:
+        if payload.get("trending"):
+            console.print(Panel("[bold]What's being discussed now[/bold]", style="magenta"))
+            for tr in payload["trending"]:
+                console.print(f"  🔥 [bold]{tr['term']}[/bold] — {tr['summary']}")
+                if tr.get("hook"):
+                    console.print(f"     [dim]angle:[/dim] {tr['hook']}")
+        table = Table(title=f"Posting backlog (last {since}d · {payload['shipped_unposted']} shipped-but-unposted)")
+        table.add_column("#", style="dim", width=3)
+        table.add_column("Score", justify="right", style="green", width=6)
+        table.add_column("Topic", style="bold", width=40)
+        table.add_column("Source", width=12)
+        table.add_column("Post to")
+        table.add_column("Flags", width=12)
+        for i, o in enumerate(payload["opportunities"], 1):
+            flags = []
+            if o.get("timely"):
+                flags.append("⏱")
+            if o.get("already_covered"):
+                flags.append("✓planned")
+            table.add_row(
+                str(i), str(o["score"]), o["topic"][:40], o["source"],
+                ", ".join(o["platforms"]), " ".join(flags),
+            )
+        console.print(table)
+    else:
+        if payload.get("trending"):
+            print("\nWhat's being discussed now:")
+            for tr in payload["trending"]:
+                print(f"  🔥 {tr['term']} — {tr['summary']}")
+        print(f"\nPosting backlog (last {since}d, {payload['shipped_unposted']} shipped-but-unposted):")
+        for i, o in enumerate(payload["opportunities"], 1):
+            flags = " [timely]" if o.get("timely") else ""
+            flags += " [planned]" if o.get("already_covered") else ""
+            print(f"  {i}. [{o['score']}] {o['topic']} — {o['source']} → {', '.join(o['platforms'])}{flags}")
+
+    if seeded:
+        _print(f"[green]✓[/green] Seeded {seeded} calendar entries" if HAS_RICH else f"✓ Seeded {seeded} calendar entries")
+    if vault_path:
+        _print(f"[green]✓[/green] Radar brief → {vault_path}" if HAS_RICH else f"✓ Radar brief → {vault_path}")
+
+
 @presence_app.command("bio")
 def presence_bio(
     length: str = typer.Option("short", "--length", "-l", help="Bio length: short or long"),

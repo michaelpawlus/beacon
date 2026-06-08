@@ -213,3 +213,29 @@ Suggest 3 content angles:
 3. A profile bullet point (concise, metrics-driven)
 
 Format each with a label and the suggestion."""
+
+
+# --- Posting strategy radar (external trending discussion) ---
+
+RADAR_TRENDING_SYSTEM = """You are a content strategist helping a job-seeking \
+technologist decide what to post about. You use web search to find what is \
+genuinely being discussed right now in their areas of expertise, then map each \
+trend to an angle they can credibly speak to. Be concrete and current. Never \
+invent trends — if search turns up nothing solid for a keyword, omit it."""
+
+RADAR_TRENDING_PROMPT = """The person works in these areas: {keywords}.
+
+Search the web for what is being actively discussed RIGHT NOW (last few weeks) \
+in these areas — launches, debates, hot takes, new tools, notable threads.
+
+Return ONLY a JSON array (no prose, no code fences) of at most {max_terms} \
+objects, each:
+{{
+  "term": "<short topic label, 2-5 words>",
+  "summary": "<one sentence on what's being discussed and why now>",
+  "hook": "<a concrete angle THIS person could post, tied to their expertise>",
+  "keywords": ["<lowercase>", "<match>", "<terms>"]
+}}
+
+Order by how timely and discussion-heavy the topic is. If nothing credible is \
+found, return []."""

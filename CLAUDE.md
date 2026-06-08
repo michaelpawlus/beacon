@@ -214,6 +214,7 @@ Application checklist.
 | `beacon presence calendar` | List calendar entries | `--platform TEXT` `--status TEXT` `--json` |
 | `beacon presence calendar-add` | Add calendar entry | `--title TEXT` `--platform TEXT` `--type TEXT` `--date DATE` |
 | `beacon presence calendar-seed` | Auto-generate calendar ideas (LLM) | |
+| `beacon presence radar` | Posting-strategy radar: sweep recent work (`sessions`/`projects`/`presentations`/`media_log`) + live trending discussion into a ranked, deduped content backlog (what to post, where, why now) | `--since N` (default 30) `--platform TEXT` `--limit N` (default 15) `--web/--no-web` (default web on) `--seed-calendar` `--vault` `--dry-run` `--json` |
 | `beacon presence github` | Generate GitHub README (LLM) | `--output PATH` |
 | `beacon presence linkedin-headline` | Generate LinkedIn headlines (LLM) | |
 | `beacon presence linkedin-about` | Generate LinkedIn About (LLM) | |
@@ -226,6 +227,24 @@ Application checklist.
 | `beacon presence site-resume` | Generate resume page | `--output PATH` |
 | `beacon presence site-projects` | Generate project pages | `--output PATH` |
 | `beacon presence enrich` | Enrichment interview / gap analysis | `--work-id N` `--list-gaps` `--generate-content` |
+
+**`presence radar` — content-opportunity engine.** Two inputs, one ranked output:
+1. **Internal sweep** (deterministic, no network) — recent `sessions`, recently-touched
+   `projects`, *delivered* `presentations`, and high-signal `media_log` rows (rating ≥4 /
+   shareable / `why_it_matters` set) each become a "you did X → post here" opportunity,
+   platform-routed by heuristic (shipped feature → LinkedIn+blog; public project → +GitHub;
+   talk → repurpose, +Twitter clip if a recording exists; consumed media → commentary post).
+2. **External radar** (`--web`, default on) — keywords drawn from your recent-work tech tags +
+   advanced/expert skills feed the LLM web-search tool to surface *what's being discussed right
+   now*; each trend becomes its own grounded opportunity ("comment on X, you can speak to it via
+   project Y") and bumps the timeliness score of overlapping internal opportunities.
+
+Opportunities are deduped against the existing `content_calendar` + `content_drafts` (so already-planned
+topics are flagged, not re-surfaced) and the payload reports `shipped_unposted` — the gap between what you
+*did* and what you've *posted*. Scoring = recency + evidence strength + source weight + timeliness −
+already-covered penalty. `--web` degrades gracefully (records a warning, exit 0) when `ANTHROPIC_API_KEY`
+or network is unavailable. `--seed-calendar` writes the surfaced opportunities into `content_calendar`;
+`--vault` writes a markdown brief to `$OBSIDIAN_VAULT_PATH/Job Search/posting-radar/` via `oj capture`.
 
 ### Media Sub-commands (`beacon media ...`)
 
