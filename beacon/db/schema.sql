@@ -104,6 +104,8 @@ CREATE TABLE IF NOT EXISTS job_listings (
     relevance_score REAL DEFAULT 0,
     match_reasons TEXT,  -- JSON array of reasons
     highlights TEXT,  -- JSON: salary, AI tools, experience extracted from description
+    archetype TEXT,  -- role archetype key (see beacon/research/archetypes.py)
+    archetype_confidence REAL,  -- 0-1 classifier confidence
     created_at TEXT DEFAULT (datetime('now')),
     UNIQUE(company_id, title, url)
 );

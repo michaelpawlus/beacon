@@ -20,6 +20,7 @@ import yaml
 
 from beacon.db.profile import get_projects, get_work_experiences
 from beacon.materials.company_context import build_company_context_dict
+from beacon.research.archetypes import archetype_label, framing_for
 
 _QUESTIONS_PATH = Path(__file__).parent / "questions" / "base.yaml"
 
@@ -200,11 +201,16 @@ def build_brief(
     base_questions = pick_questions(match_row.get("title"), templates)
     dyn_questions = _dynamic_questions(company_ctx)
 
+    archetype_key = job_row["archetype"] if job_row and "archetype" in job_row.keys() else None
+
     return {
         "job_id": job_id,
         "company": match_row.get("company"),
         "title": match_row.get("title"),
         "location": match_row.get("location") or (job_row["location"] if job_row else None),
+        "archetype": archetype_key,
+        "archetype_label": archetype_label(archetype_key),
+        "archetype_framing": framing_for(archetype_key),
         "fit_score": match_row.get("fit_score"),
         "sub_scores": match_row.get("sub_scores") or {},
         "reasons": list(match_row.get("reasons") or []),
@@ -243,6 +249,7 @@ def render_brief_markdown(brief: dict) -> str:
         f"- **Company:** {company}",
         f"- **Role:** {title}",
         f"- **Location:** {brief.get('location') or '—'}",
+        f"- **Archetype:** {brief.get('archetype_label') or '—'}",
         f"- **Fit score:** {_fmt_score(brief.get('fit_score'))} / 10",
         f"- **AI-first tier:** {tier if tier is not None else '—'}"
         + (f" (score {ai_score:.1f})" if isinstance(ai_score, (int, float)) else ""),
@@ -267,6 +274,10 @@ def render_brief_markdown(brief: dict) -> str:
         lines.append("**Sub-scores:**")
         for key, val in sub.items():
             lines.append(f"- `{key}`: {_fmt_score(val)}")
+    framing = brief.get("archetype_framing")
+    if framing:
+        lines.append("")
+        lines.append(f"**Positioning ({brief.get('archetype_label')}):** {framing}")
     lines.append("")
 
     # 3. Company posture

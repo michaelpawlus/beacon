@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from beacon.config import load_config
 from beacon.db.jobs import mark_stale_jobs, upsert_job
+from beacon.research.archetypes import classify_job
 from beacon.research.job_highlights import extract_highlights
 from beacon.research.job_scoring import compute_job_relevance
 from beacon.scrapers.registry import get_adapter
@@ -54,6 +55,9 @@ def scan_company(conn: sqlite3.Connection, company: sqlite3.Row) -> ScanResult:
         # Extract highlights from description
         highlights = extract_highlights(job_data.get("description_text", ""))
 
+        # Classify role archetype (deterministic, no LLM)
+        archetype = classify_job(job_data["title"], job_data.get("description_text", ""))
+
         # Upsert into DB
         upsert_result = upsert_job(
             conn,
@@ -67,6 +71,8 @@ def scan_company(conn: sqlite3.Connection, company: sqlite3.Row) -> ScanResult:
             relevance_score=relevance["score"],
             match_reasons=relevance["reasons"],
             highlights=highlights,
+            archetype=archetype["archetype"],
+            archetype_confidence=archetype["confidence"],
         )
 
         if upsert_result["is_new"]:

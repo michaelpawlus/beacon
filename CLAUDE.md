@@ -108,7 +108,7 @@ file-write, no LLM round-trip.
 | `beacon stats` | Database statistics | `--json` |
 | `beacon export <format>` | Export as markdown/csv/json/report | `--min-score N` `--output PATH` |
 | `beacon scan` | Scan career pages for jobs | `--company TEXT` `--platform TEXT` `--min-score N` `--json` |
-| `beacon jobs` | List job listings by relevance | `--company TEXT` `--status TEXT` `--min-relevance N` `--since DATE` `--new` `--limit N` `--json` |
+| `beacon jobs` | List job listings by relevance | `--company TEXT` `--status TEXT` `--min-relevance N` `--archetype KEY` `--since DATE` `--new` `--limit N` `--json` |
 | `beacon match-jobs` | Rank listings by overlap with the user's actual profile (skills + work history + outcomes) | `--limit N` `--min-fit FLOAT` `--status active\|all` `--explain` `--with-outcomes` `--json` |
 | `beacon dashboard` | Unified dashboard | `--compact` `--json` |
 | `beacon guide` | Onboarding guide | |
@@ -141,9 +141,12 @@ The subcommands drive the pluggable discovery pipeline.
 | Command | Description | Key Flags |
 |---------|-------------|-----------|
 | `beacon job show <id>` | Detailed job info | `--json` |
+| `beacon job archetype [id]` | Show / set / backfill the role archetype on listings | `--set KEY` `--reclassify` `--backfill` `--force` `--list` `--json` |
 | `beacon job apply <id>` | Mark as applied, create application record | `--generate` `--notes TEXT` |
 | `beacon job ignore <id>` | Mark as ignored | |
 | `beacon job add` | Manually add an external job listing (use `--fetch` to auto-extract from URL) | `--fetch` `--title TEXT` `--company TEXT` `--url TEXT` `--location TEXT` `--department TEXT` `--description TEXT` `--date-posted DATE` `--create-company` `--json` |
+
+**Role archetypes (`beacon job archetype`).** Every scanned/added listing is auto-classified into one of seven role archetypes so downstream commands know *how* to frame the candidate: `agentic` (Agentic / Applied AI), `ai_engineer_llmops` (AI Engineer / LLMOps), `data_platform` (Data Platform / Analytics Engineer), `ml_ds` (ML / Data Science), `solutions_fde` (Solutions Architect / FDE), `eng_leadership` (Engineering Leadership), `product_pm` (Product / PM). Classification is deterministic (title-pattern + keyword heuristics, no LLM) in `beacon/research/archetypes.py`; `score = title_hits×3 + min(keyword_hits, 4)`, highest wins, `confidence` blends signal strength with margin over the runner-up (keyword-only matches capped at 0.5). Stored on `job_listings.archetype` + `archetype_confidence`. Filter with `beacon jobs --archetype data_platform`; backfill pre-feature rows with `beacon job archetype --backfill`. The `interview-brief` reads the archetype to print a one-line **Positioning** note (`framing_for(key)`).
 
 ### Report Sub-commands (`beacon report ...`)
 
@@ -385,6 +388,12 @@ beacon scores --since 7 --json | jq '.recomputed'
 # Find relevant jobs at a specific company
 beacon jobs --company "Anthropic" --min-relevance 7 --json
 
+# Filter listings by role archetype, and backfill archetypes on older rows
+beacon jobs --archetype data_platform --json
+beacon job archetype --list --json
+beacon job archetype --backfill --json | jq '.distribution'
+beacon job archetype 42 --json   # classify (or show) one listing
+
 # Rank known listings by overlap with the user's actual profile (not just static keywords)
 beacon match-jobs --limit 10 --json
 # Layer in empirical lift from skills that have produced positive outcomes
@@ -455,6 +464,7 @@ Read commands support composable filters (AND logic):
 
 - SQLite at `data/beacon.db`
 - Schema in `beacon/db/schema.sql`
+- `job_listings` carries `archetype` + `archetype_confidence` (role archetype classification — see `beacon job archetype`)
 - Key tables: `companies`, `ai_signals`, `leadership_signals`, `tools_adopted`, `score_breakdown`, `job_listings`, `applications`, `application_outcomes`, `work_experiences`, `projects`, `skills`, `education`, `publications_talks`, `content_drafts`, `content_calendar`, `media_log`, `network_events`, `network_contacts`, `network_contact_events`, `presentations`, `speaker_profile`, `resume_variants`, `automation_log`, `sessions`, `discovery_candidates`
 - `beacon init` must be run before first use (creates schema + seeds 38 companies)
 

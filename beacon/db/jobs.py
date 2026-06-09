@@ -16,6 +16,8 @@ def upsert_job(
     relevance_score: float = 0.0,
     match_reasons: list[str] | None = None,
     highlights: dict | None = None,
+    archetype: str | None = None,
+    archetype_confidence: float | None = None,
 ) -> dict:
     """Insert or update a job listing. Returns {"id": ..., "is_new": bool}."""
     reasons_json = json.dumps(match_reasons) if match_reasons else None
@@ -38,10 +40,13 @@ def upsert_job(
                    relevance_score = ?,
                    match_reasons = COALESCE(?, match_reasons),
                    highlights = COALESCE(?, highlights),
+                   archetype = COALESCE(?, archetype),
+                   archetype_confidence = COALESCE(?, archetype_confidence),
                    status = CASE WHEN status = 'closed' THEN 'active' ELSE status END
                WHERE id = ?""",
             (location, department, description_text, date_posted,
-             relevance_score, reasons_json, highlights_json, existing["id"]),
+             relevance_score, reasons_json, highlights_json,
+             archetype, archetype_confidence, existing["id"]),
         )
         conn.commit()
         return {"id": existing["id"], "is_new": False}
@@ -49,13 +54,30 @@ def upsert_job(
         cursor = conn.execute(
             """INSERT INTO job_listings
                (company_id, title, url, location, department, description_text,
-                date_posted, relevance_score, match_reasons, highlights)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                date_posted, relevance_score, match_reasons, highlights,
+                archetype, archetype_confidence)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (company_id, title, url, location, department,
-             description_text, date_posted, relevance_score, reasons_json, highlights_json),
+             description_text, date_posted, relevance_score, reasons_json,
+             highlights_json, archetype, archetype_confidence),
         )
         conn.commit()
         return {"id": cursor.lastrowid, "is_new": True}
+
+
+def set_job_archetype(
+    conn: sqlite3.Connection,
+    job_id: int,
+    archetype: str | None,
+    confidence: float | None = None,
+) -> bool:
+    """Set (or clear) a job's archetype + confidence. Returns True if found."""
+    cursor = conn.execute(
+        "UPDATE job_listings SET archetype = ?, archetype_confidence = ? WHERE id = ?",
+        (archetype, confidence, job_id),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
 
 
 def mark_stale_jobs(conn: sqlite3.Connection, company_id: int, active_urls: set[str | None]) -> int:
@@ -104,6 +126,7 @@ def get_jobs(
     status: str | None = None,
     min_relevance: float | None = None,
     location: str | None = None,
+    archetype: str | None = None,
     limit: int = 50,
 ) -> list[sqlite3.Row]:
     """Get job listings with optional filters."""
@@ -119,6 +142,9 @@ def get_jobs(
     if min_relevance is not None:
         query += " AND j.relevance_score >= ?"
         params.append(min_relevance)
+    if archetype:
+        query += " AND j.archetype = ?"
+        params.append(archetype)
     if location:
         loc_sql, loc_params = _build_location_filter(location)
         query += f" AND {loc_sql}"
