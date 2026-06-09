@@ -1297,6 +1297,7 @@ def jobs(
     status: str = typer.Option(None, "--status", "-s", help="Filter by status (active, closed, applied, ignored)"),
     min_relevance: float = typer.Option(None, "--min-relevance", "-r", help="Minimum relevance score"),
     location: str = typer.Option(None, "--location", help="Location filter (e.g. 'remote', 'columbus')"),
+    archetype: str = typer.Option(None, "--archetype", help="Filter by role archetype key (see `beacon job archetype --list`)"),
     since: str = typer.Option(None, "--since", help="Show jobs first seen after date (YYYY-MM-DD)"),
     new: bool = typer.Option(False, "--new", help="Show only jobs from last 24 hours"),
     limit: int = typer.Option(50, "--limit", "-l", help="Max results"),
@@ -1310,6 +1311,8 @@ def jobs(
     if new or since:
         since_dt = since or (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
         rows = get_new_jobs_since(conn, since_dt, min_relevance, location=location)
+        if archetype:
+            rows = [r for r in rows if r["archetype"] == archetype]
     else:
         company_id = None
         if company:
@@ -1323,7 +1326,7 @@ def jobs(
                     _print(f"No company found matching '{company}'")
                 conn.close()
                 raise typer.Exit(2)
-        rows = get_jobs(conn, company_id=company_id, status=status, min_relevance=min_relevance, location=location, limit=limit)
+        rows = get_jobs(conn, company_id=company_id, status=status, min_relevance=min_relevance, location=location, archetype=archetype, limit=limit)
 
     conn.close()
 
@@ -1350,11 +1353,16 @@ def jobs(
             salary_map[r["id"]] = salary
         has_salary = any(salary_map.values())
 
+        from beacon.research.archetypes import archetype_label
+        has_archetype = any(r["archetype"] for r in rows)
+
         table = Table(title="Job Listings")
         table.add_column("ID", style="dim", width=5)
         table.add_column("Company", style="bold")
         table.add_column("Title")
         table.add_column("Relevance", justify="right")
+        if has_archetype:
+            table.add_column("Archetype", width=22)
         table.add_column("Location", width=20)
         if has_salary:
             table.add_column("Salary", no_wrap=True)
@@ -1367,8 +1375,10 @@ def jobs(
                 r["company_name"],
                 r["title"][:50],
                 f"[{score_color}]{r['relevance_score']:.1f}[/{score_color}]",
-                (r["location"] or "")[:20],
             ]
+            if has_archetype:
+                row_data.append((archetype_label(r["archetype"]) or "—")[:22])
+            row_data.append((r["location"] or "")[:20])
             if has_salary:
                 row_data.append(salary_map[r["id"]])
             row_data.append(r["status"])
@@ -1520,8 +1530,13 @@ def job_show(
             pass
 
     if HAS_RICH:
+        from beacon.research.archetypes import archetype_label
         console.print(Panel(f"[bold]{job['title']}[/bold] at {job['company_name']}", style="blue"))
         console.print(f"  Relevance: [bold]{job['relevance_score']:.1f}[/bold] / 10")
+        if job["archetype"]:
+            conf = job["archetype_confidence"]
+            conf_str = f" ({conf:.0%} conf)" if isinstance(conf, (int, float)) else ""
+            console.print(f"  Archetype: {archetype_label(job['archetype'])}{conf_str}")
         console.print(f"  Location: {job['location'] or 'N/A'}")
         console.print(f"  Department: {job['department'] or 'N/A'}")
         console.print(f"  Status: {job['status']}")
@@ -1549,8 +1564,11 @@ def job_show(
             console.print("\n[bold]Description:[/bold]")
             console.print(f"  {job['description_text'][:500]}")
     else:
+        from beacon.research.archetypes import archetype_label
         print(f"\n{job['title']} at {job['company_name']}")
         print(f"  Relevance: {job['relevance_score']:.1f}/10 | Status: {job['status']}")
+        if job["archetype"]:
+            print(f"  Archetype: {archetype_label(job['archetype'])}")
         print(f"  Location: {job['location'] or 'N/A'} | Department: {job['department'] or 'N/A'}")
         if hl.get("salary_raw"):
             print(f"  Salary: {hl['salary_raw']}")
@@ -1558,6 +1576,146 @@ def job_show(
             print(f"  AI Tools: {', '.join(hl['ai_tools'])}")
         if job["url"]:
             print(f"  URL: {job['url']}")
+
+
+@job_app.command("archetype")
+def job_archetype(
+    job_id: int = typer.Argument(None, help="Job listing ID (omit with --backfill or --list)"),
+    set_key: str = typer.Option(None, "--set", help="Manually set the archetype to this key"),
+    reclassify: bool = typer.Option(False, "--reclassify", help="Recompute from title + description, overwriting any existing value"),
+    backfill: bool = typer.Option(False, "--backfill", help="Classify every listing missing an archetype"),
+    force: bool = typer.Option(False, "--force", help="With --backfill, reclassify all listings (not just unclassified)"),
+    show_list: bool = typer.Option(False, "--list", help="List the archetype taxonomy and exit"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Show, set, or backfill the role archetype on job listings.
+
+    Examples:
+      beacon job archetype --list              # show the taxonomy
+      beacon job archetype 42                  # show (classify if unset) job 42
+      beacon job archetype 42 --reclassify     # recompute job 42 from scratch
+      beacon job archetype 42 --set ml_ds      # force a specific archetype
+      beacon job archetype --backfill          # classify all unclassified listings
+    """
+    from beacon.db.jobs import get_job_by_id, set_job_archetype
+    from beacon.research.archetypes import (
+        classify_job,
+        is_valid_archetype,
+        list_archetypes,
+    )
+
+    if show_list:
+        taxonomy = list_archetypes()
+        if as_json:
+            _json_out({"archetypes": taxonomy})
+            return
+        if HAS_RICH:
+            table = Table(title="Role Archetypes")
+            table.add_column("Key", style="bold cyan")
+            table.add_column("Label")
+            table.add_column("Framing")
+            for a in taxonomy:
+                table.add_row(a["key"], a["label"], a["framing"])
+            console.print(table)
+        else:
+            for a in taxonomy:
+                print(f"  {a['key']}: {a['label']} — {a['framing']}")
+        return
+
+    if set_key and not is_valid_archetype(set_key):
+        msg = f"Unknown archetype key '{set_key}'. Run `beacon job archetype --list` to see valid keys."
+        if as_json:
+            _json_out({"error": msg, "code": 1})
+        else:
+            _print(msg)
+        raise typer.Exit(1)
+
+    conn = get_connection()
+
+    if backfill:
+        clause = "" if force else " WHERE archetype IS NULL"
+        rows = conn.execute(
+            f"SELECT id, title, description_text FROM job_listings{clause}"
+        ).fetchall()
+        updated = 0
+        distribution: dict[str, int] = {}
+        for r in rows:
+            result = classify_job(r["title"], r["description_text"] or "")
+            set_job_archetype(conn, r["id"], result["archetype"], result["confidence"])
+            updated += 1
+            key = result["archetype"] or "unclassified"
+            distribution[key] = distribution.get(key, 0) + 1
+        conn.close()
+        payload = {"classified": updated, "scope": "all" if force else "unclassified", "distribution": distribution}
+        if as_json:
+            _json_out(payload)
+            return
+        _print(f"[green]✓[/green] Classified {updated} listing(s)." if HAS_RICH else f"✓ Classified {updated} listing(s).")
+        for key, count in sorted(distribution.items(), key=lambda kv: kv[1], reverse=True):
+            _print(f"  {key}: {count}")
+        return
+
+    if job_id is None:
+        msg = "Provide a job ID, or use --backfill / --list."
+        if as_json:
+            _json_out({"error": msg, "code": 1})
+        else:
+            _print(msg)
+        conn.close()
+        raise typer.Exit(1)
+
+    job = get_job_by_id(conn, job_id)
+    if not job:
+        conn.close()
+        if as_json:
+            _json_out({"error": f"No job found with ID {job_id}", "code": 2})
+        else:
+            _print(f"No job found with ID {job_id}")
+        raise typer.Exit(2)
+
+    classification = None
+    if set_key:
+        set_job_archetype(conn, job_id, set_key, None)
+        current_key, current_conf = set_key, None
+    elif reclassify or job["archetype"] is None:
+        classification = classify_job(job["title"], job["description_text"] or "")
+        set_job_archetype(conn, job_id, classification["archetype"], classification["confidence"])
+        current_key, current_conf = classification["archetype"], classification["confidence"]
+    else:
+        current_key, current_conf = job["archetype"], job["archetype_confidence"]
+    conn.close()
+
+    from beacon.research.archetypes import archetype_label, framing_for
+    payload = {
+        "job_id": job_id,
+        "title": job["title"],
+        "company": job["company_name"],
+        "archetype": current_key,
+        "archetype_label": archetype_label(current_key),
+        "archetype_confidence": current_conf,
+        "framing": framing_for(current_key),
+    }
+    if classification is not None:
+        payload["scores"] = classification["scores"]
+        payload["reasons"] = classification["reasons"]
+
+    if as_json:
+        _json_out(payload)
+        return
+
+    _print(f"[bold]{job['title']}[/bold] at {job['company_name']}" if HAS_RICH else f"{job['title']} at {job['company_name']}")
+    if current_key:
+        conf_str = f" ({current_conf:.0%} confidence)" if isinstance(current_conf, (int, float)) else ""
+        _print(f"  Archetype: {archetype_label(current_key)} [{current_key}]{conf_str}")
+        framing = framing_for(current_key)
+        if framing:
+            _print(f"  Framing: {framing}")
+        if classification is not None and classification["scores"]:
+            ranked = sorted(classification["scores"].items(), key=lambda kv: kv[1], reverse=True)
+            scores_str = ", ".join(f"{k}={v:.0f}" for k, v in ranked)
+            _print(f"  Scores: {scores_str}")
+    else:
+        _print("  Archetype: unclassified (no signal in title/description)")
 
 
 @job_app.command("apply")
@@ -1773,6 +1931,9 @@ def job_add(
     relevance = compute_job_relevance(job_data, config=config, company_score=company_score)
     highlights = extract_highlights(description or "")
 
+    from beacon.research.archetypes import classify_job
+    archetype = classify_job(title, description or "")
+
     result = upsert_job(
         conn,
         company_id=company_id,
@@ -1785,6 +1946,8 @@ def job_add(
         relevance_score=relevance["score"],
         match_reasons=relevance["reasons"],
         highlights=highlights,
+        archetype=archetype["archetype"],
+        archetype_confidence=archetype["confidence"],
     )
     conn.close()
 
@@ -1796,6 +1959,9 @@ def job_add(
             "company": company_name,
             "company_created": created_company,
             "relevance_score": relevance["score"],
+            "archetype": archetype["archetype"],
+            "archetype_label": archetype["label"],
+            "archetype_confidence": archetype["confidence"],
             "title": title,
             "url": url,
         }

@@ -30,6 +30,8 @@ def init_db(db_path: Path | str | None = None) -> None:
 def _run_migrations(conn: sqlite3.Connection) -> None:
     """Run safe ALTER TABLE migrations for columns added after initial release."""
     _add_column_if_missing(conn, "job_listings", "highlights", "TEXT")
+    _add_column_if_missing(conn, "job_listings", "archetype", "TEXT")
+    _add_column_if_missing(conn, "job_listings", "archetype_confidence", "REAL")
     _add_column_if_missing(conn, "discovery_candidates", "discovery_score", "REAL DEFAULT 0")
     conn.execute(
         """CREATE TABLE IF NOT EXISTS job_requirements (
