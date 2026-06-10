@@ -497,6 +497,32 @@ CREATE INDEX IF NOT EXISTS idx_candidates_status ON discovery_candidates(status)
 CREATE INDEX IF NOT EXISTS idx_candidates_source ON discovery_candidates(source);
 CREATE INDEX IF NOT EXISTS idx_candidates_score ON discovery_candidates(discovery_score DESC);
 
+-- Career OS: win / evidence log — brag-document discipline from day one.
+-- Wins are logged as they happen at the current job and later distilled into
+-- interview stories (interview_stories.id lands with #30; plain column until then).
+CREATE TABLE IF NOT EXISTS wins (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    win_date TEXT DEFAULT (date('now')),
+    category TEXT CHECK(category IN ('delivery','adoption','enablement','relationship','revenue','learning','visibility','process')),
+    description TEXT,
+    impact TEXT,
+    metrics TEXT,             -- JSON array of quantified results
+    stakeholders TEXT,        -- JSON array
+    technologies TEXT,        -- JSON array
+    tags TEXT,                -- JSON array
+    work_experience_id INTEGER REFERENCES work_experiences(id) ON DELETE SET NULL,
+    session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL,
+    project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+    story_id INTEGER,         -- set when promoted to an interview story (#30)
+    visibility TEXT DEFAULT 'private' CHECK(visibility IN ('private','team','public')),
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_wins_category ON wins(category);
+CREATE INDEX IF NOT EXISTS idx_wins_date ON wins(win_date DESC);
+
 -- Cached structured requirements for a job listing — populated on first
 -- `beacon match-jobs` run per listing, refreshed when the listing's
 -- date_last_seen advances past extracted_at.
