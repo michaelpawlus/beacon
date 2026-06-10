@@ -49,6 +49,9 @@ media_app = typer.Typer(help="Media log — track videos, podcasts, articles")
 network_app = typer.Typer(help="Networking — events and professional contacts")
 gaps_app = typer.Typer(help="Skill gap tracking and analysis")
 materials_app = typer.Typer(help="Application materials (resumes, cover letters, interview briefs)")
+career_app = typer.Typer(help="Career OS — wins, evidence, brag-doc reviews")
+win_app = typer.Typer(help="Win / evidence log")
+career_app.add_typer(win_app, name="win")
 app.add_typer(companies_app, name="companies")
 app.add_typer(job_app, name="job")
 app.add_typer(report_app, name="report")
@@ -62,6 +65,7 @@ app.add_typer(media_app, name="media")
 app.add_typer(network_app, name="network")
 app.add_typer(gaps_app, name="gaps")
 app.add_typer(materials_app, name="materials")
+app.add_typer(career_app, name="career")
 console = Console() if HAS_RICH else None
 
 
@@ -5320,6 +5324,210 @@ def _fmt(value) -> str:
         return f"{float(value):.1f}"
     except (TypeError, ValueError):
         return "—"
+
+
+# ── Career OS ──────────────────────────────────────────────────────────
+
+
+@win_app.command("add")
+def career_win_add(
+    title: str = typer.Argument(..., help="Short title for the win"),
+    category: str = typer.Option(None, "--category", "-c", help="delivery, adoption, enablement, relationship, revenue, learning, visibility, process"),
+    description: str = typer.Option(None, "--description", "-d", help="What happened"),
+    impact: str = typer.Option(None, "--impact", "-i", help="Why it mattered to the business"),
+    metric: list[str] = typer.Option([], "--metric", "-m", help="Quantified result (repeatable)"),
+    stakeholder: list[str] = typer.Option([], "--stakeholder", help="Who saw / benefited (repeatable)"),
+    tech: list[str] = typer.Option([], "--tech", help="Technologies involved (repeatable)"),
+    tag: list[str] = typer.Option([], "--tag", "-t", help="Tags (repeatable)"),
+    date: str = typer.Option(None, "--date", help="Win date (YYYY-MM-DD, default today)"),
+    from_session: int = typer.Option(None, "--from-session", help="Link to a logged session ID"),
+    from_project: int = typer.Option(None, "--from-project", help="Link to a project ID"),
+    work_exp: int = typer.Option(None, "--work-exp", help="Link to a work experience ID"),
+    visibility: str = typer.Option("private", "--visibility", help="private, team, or public"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Log a win as it happens — the evidence base for stories, reviews, and target fit."""
+    from beacon.career import add_win
+
+    conn = get_connection()
+    try:
+        win_id = add_win(
+            conn,
+            title=title,
+            category=category,
+            description=description,
+            impact=impact,
+            metrics=metric or None,
+            stakeholders=stakeholder or None,
+            technologies=tech or None,
+            tags=tag or None,
+            win_date=date,
+            work_experience_id=work_exp,
+            session_id=from_session,
+            project_id=from_project,
+            visibility=visibility,
+        )
+    except ValueError as e:
+        if as_json:
+            _json_out({"error": str(e), "code": 1})
+        else:
+            _print(f"[red]✗[/red] {e}" if HAS_RICH else f"✗ {e}")
+        conn.close()
+        raise typer.Exit(1)
+    conn.close()
+
+    result = {"id": win_id, "title": title, "category": category}
+    if as_json:
+        _json_out(result)
+    else:
+        _stderr(f"Win logged (id={win_id}): {title}")
+
+
+@win_app.command("list")
+def career_win_list(
+    category: str = typer.Option(None, "--category", "-c", help="Filter by category"),
+    since: str = typer.Option(None, "--since", help="Since date (YYYY-MM-DD or Nd, e.g. 30d)"),
+    untold: bool = typer.Option(False, "--untold", help="Only wins not yet promoted to a story"),
+    visibility: str = typer.Option(None, "--visibility", help="Filter by visibility"),
+    search: str = typer.Option(None, "--search", "-s", help="Search title, description, impact"),
+    limit: int = typer.Option(50, "--limit", "-n", help="Max results"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """List logged wins."""
+    from beacon.career import list_wins
+
+    conn = get_connection()
+    wins = list_wins(
+        conn, category=category, since=since, untold=untold,
+        visibility=visibility, search=search, limit=limit,
+    )
+    conn.close()
+
+    if as_json:
+        _json_out(wins)
+        return
+
+    if not wins:
+        _print("No wins logged yet. Log one with `beacon career win add`.")
+        return
+
+    if HAS_RICH:
+        table = Table(title="Wins")
+        table.add_column("ID", style="dim")
+        table.add_column("Date")
+        table.add_column("Category")
+        table.add_column("Title")
+        table.add_column("Story", justify="center")
+        for w in wins:
+            table.add_row(
+                str(w["id"]),
+                w.get("win_date", ""),
+                w.get("category") or "",
+                w.get("title", ""),
+                "✓" if w.get("story_id") else "",
+            )
+        console.print(table)
+    else:
+        for w in wins:
+            print(f"{w['id']}: [{w.get('win_date', '')}] ({w.get('category') or '-'}) {w.get('title', '')}")
+
+
+@win_app.command("show")
+def career_win_show(
+    win_id: int = typer.Argument(..., help="Win ID"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Show details for a single win."""
+    from beacon.career import get_win
+
+    conn = get_connection()
+    win = get_win(conn, win_id)
+    conn.close()
+
+    if not win:
+        if as_json:
+            _json_out({"error": "Win not found", "code": 2})
+        else:
+            _print(f"Win {win_id} not found.")
+        raise typer.Exit(2)
+
+    if as_json:
+        _json_out(win)
+        return
+
+    if HAS_RICH:
+        details = f"**Date:** {win.get('win_date', '')}\n"
+        details += f"**Category:** {win.get('category') or ''}\n"
+        details += f"**Visibility:** {win.get('visibility', '')}\n"
+        if win.get("description"):
+            details += f"\n**What:** {win['description']}\n"
+        if win.get("impact"):
+            details += f"\n**Impact:** {win['impact']}\n"
+        for field, label in (("metrics", "Metrics"), ("stakeholders", "Stakeholders"),
+                             ("technologies", "Technologies"), ("tags", "Tags")):
+            if win.get(field):
+                details += f"\n**{label}:** {win[field]}\n"
+        if win.get("story_id"):
+            details += f"\n**Story:** {win['story_id']}\n"
+        console.print(Panel(details, title=win["title"]))
+    else:
+        print(f"Win {win['id']}: {win['title']}")
+        print(f"  Date: {win.get('win_date', '')}")
+        print(f"  Category: {win.get('category') or ''}")
+
+
+@career_app.command("review")
+def career_review(
+    since: str = typer.Option("90d", "--since", help="Window (YYYY-MM-DD or Nd, default 90d)"),
+    vault: bool = typer.Option(False, "--vault", help="Write the review to the Obsidian vault via oj capture"),
+    output: str = typer.Option(None, "--output", "-o", help="Write the review to a local path"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Render the brag-document review: win mix, evidence, untold stories."""
+    from beacon.career import current_role, list_wins, render_review_markdown, resolve_since
+
+    conn = get_connection()
+    wins = list_wins(conn, since=since, limit=500)
+    role = current_role(conn)
+    conn.close()
+
+    since_label = f"since {resolve_since(since)}"
+    markdown = render_review_markdown(wins, since_label, role=role)
+
+    result = {"win_count": len(wins), "since": resolve_since(since)}
+
+    if output:
+        Path(output).write_text(markdown)
+        result["path"] = output
+
+    if vault:
+        try:
+            info = _capture_to_vault(
+                body=markdown,
+                folder="Job Search/Career Reviews",
+                title=f"{datetime.now().strftime('%Y-%m-%d')}-career-review",
+                fm_type="career-review",
+                company=(role or {}).get("company", ""),
+                role=(role or {}).get("title", ""),
+                extra_tags=["career-review"],
+            )
+            result["vault_path"] = info.get("path")
+        except RuntimeError as e:
+            result["error"] = str(e)
+
+    if as_json:
+        result["markdown"] = markdown
+        _json_out(result)
+        return
+
+    if not output and not vault:
+        print(markdown)
+    else:
+        for key in ("path", "vault_path"):
+            if result.get(key):
+                _print(f"Review written: {result[key]}")
+        if result.get("error"):
+            _print(f"[red]✗[/red] {result['error']}" if HAS_RICH else f"✗ {result['error']}")
 
 
 def main():

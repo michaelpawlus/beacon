@@ -4,6 +4,8 @@
 
 Beacon is a **tool for the agent** — Claude Code is the intelligence layer. Beacon curates, scores, and monitors AI-first companies and their job listings. The agent synthesizes company data, scores, and job listings into actionable job-search guidance. No API key is required; the agent orchestrates beacon CLI commands on behalf of the user.
 
+**v2 pivot (2026-06):** the user accepted an FDE offer; beacon is shifting from active job seeking to a **career operating system** — win/evidence logging from day one (`beacon career`), STAR+Reflection stories, aspirational-role fit tracking, and quarterly role-market awareness. North star + workstreams: `docs/career-strategy.md`.
+
 ## Quick Start
 
 ```bash
@@ -361,6 +363,21 @@ Contract stability is enforced by `tests/test_gaps_contract.py`. Any change to e
 | `beacon session list` | List sessions | `--project TEXT` `--tag TEXT` `--limit N` `--json` |
 | `beacon session show <id>` | Show session detail | `--json` |
 
+### Career Sub-commands (`beacon career ...`)
+
+Career-OS surface (post-pivot, see `docs/career-strategy.md`). Wins are the
+evidence base that feeds interview stories (#30), brag-doc reviews, and
+aspirational-role fit.
+
+| Command | Description | Key Flags |
+|---------|-------------|-----------|
+| `beacon career win add <title>` | Log a win as it happens | `--category TEXT` `--description TEXT` `--impact TEXT` `--metric TEXT` (repeatable) `--stakeholder TEXT` `--tech TEXT` `--tag TEXT` `--date DATE` `--from-session N` `--from-project N` `--work-exp N` `--visibility TEXT` `--json` |
+| `beacon career win list` | List wins with filters | `--category TEXT` `--since DATE\|Nd` `--untold` `--visibility TEXT` `--search TEXT` `--limit N` `--json` |
+| `beacon career win show <id>` | Win detail | `--json` |
+| `beacon career review` | Brag-document review: win mix, evidence, untold stories | `--since DATE\|Nd` (default 90d) `--vault` `--output PATH` `--json` |
+
+**Win categories** encode the value-overhang thesis: `delivery`, `adoption`, `enablement`, `relationship`, `revenue`, `learning`, `visibility`, `process`. `adoption`/`enablement`/`relationship` count as *diffusion* work; the review reports the diffusion-vs-delivery mix. `--untold` filters to wins not yet promoted to an interview story (`story_id IS NULL` — promotion lands with #30). `beacon career review --vault` writes to `$OBSIDIAN_VAULT_PATH/Job Search/Career Reviews/` via `oj capture` with `type: career-review` frontmatter.
+
 ## Agent Usage Examples
 
 ```bash
@@ -465,7 +482,7 @@ Read commands support composable filters (AND logic):
 - SQLite at `data/beacon.db`
 - Schema in `beacon/db/schema.sql`
 - `job_listings` carries `archetype` + `archetype_confidence` (role archetype classification — see `beacon job archetype`)
-- Key tables: `companies`, `ai_signals`, `leadership_signals`, `tools_adopted`, `score_breakdown`, `job_listings`, `applications`, `application_outcomes`, `work_experiences`, `projects`, `skills`, `education`, `publications_talks`, `content_drafts`, `content_calendar`, `media_log`, `network_events`, `network_contacts`, `network_contact_events`, `presentations`, `speaker_profile`, `resume_variants`, `automation_log`, `sessions`, `discovery_candidates`
+- Key tables: `companies`, `ai_signals`, `leadership_signals`, `tools_adopted`, `score_breakdown`, `job_listings`, `applications`, `application_outcomes`, `work_experiences`, `projects`, `skills`, `education`, `publications_talks`, `content_drafts`, `content_calendar`, `media_log`, `network_events`, `network_contacts`, `network_contact_events`, `presentations`, `speaker_profile`, `resume_variants`, `automation_log`, `sessions`, `discovery_candidates`, `wins`
 - `beacon init` must be run before first use (creates schema + seeds 38 companies)
 
 ## Environment Variables
