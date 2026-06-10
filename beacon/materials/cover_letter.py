@@ -18,6 +18,7 @@ from beacon.llm.client import generate
 from beacon.llm.prompts import COVER_LETTER_PROMPT, COVER_LETTER_SYSTEM_PROMPT
 from beacon.materials.company_context import build_company_context
 from beacon.materials.resume import extract_requirements
+from beacon.research.archetypes import positioning_for_job
 
 __all__ = ["build_company_context", "build_profile_summary", "generate_cover_letter"]
 
@@ -89,6 +90,7 @@ def generate_cover_letter(
         company_context=company_context,
         profile_summary=profile_summary,
         requirements=requirements_text,
+        positioning=positioning_for_job(job, description),
         tone=tone,
     )
 

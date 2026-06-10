@@ -162,6 +162,43 @@ class TestGenerateCoverLetter:
         call_kwargs = mock_generate.call_args
         assert "conversational" in call_kwargs[1]["system"]
 
+    @patch("beacon.materials.cover_letter.generate")
+    @patch("beacon.materials.cover_letter.extract_requirements")
+    def test_prompt_includes_archetype_positioning(self, mock_extract, mock_generate, db):
+        from beacon.research.archetypes import archetype_label, framing_for
+
+        cid = _insert_company(db)
+        _populate_profile(db)
+        job = upsert_job(db, cid, "AI Engineer", url="https://x.com/1",
+                         description_text="evals and observability",
+                         archetype="ai_engineer_llmops", archetype_confidence=0.8)
+
+        mock_extract.return_value = {"required_skills": [], "preferred_skills": [], "seniority": "senior", "keywords": []}
+        mock_generate.return_value = LLMResponse(
+            text="Dear Hiring Manager,", model="test", input_tokens=10, output_tokens=20,
+        )
+
+        generate_cover_letter(db, job["id"])
+        prompt = mock_generate.call_args[0][0]
+        assert archetype_label("ai_engineer_llmops") in prompt
+        assert framing_for("ai_engineer_llmops") in prompt
+
+    @patch("beacon.materials.cover_letter.generate")
+    @patch("beacon.materials.cover_letter.extract_requirements")
+    def test_prompt_builds_without_archetype(self, mock_extract, mock_generate, db):
+        cid = _insert_company(db)
+        job = upsert_job(db, cid, "Office Manager", url="https://x.com/1")
+
+        mock_extract.return_value = {"required_skills": [], "preferred_skills": [], "seniority": "mid", "keywords": []}
+        mock_generate.return_value = LLMResponse(
+            text="Dear Hiring Manager,", model="test", input_tokens=10, output_tokens=20,
+        )
+
+        generate_cover_letter(db, job["id"])
+        prompt = mock_generate.call_args[0][0]
+        assert "Role Positioning" not in prompt
+        assert "{positioning}" not in prompt
+
     def test_job_not_found(self, db):
         with pytest.raises(ValueError, match="not found"):
             generate_cover_letter(db, 99999)

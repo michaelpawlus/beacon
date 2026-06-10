@@ -28,6 +28,8 @@ Create a tailored resume based on the following profile data and job requirement
 Target Job Requirements:
 {requirements}
 
+{positioning}
+
 Candidate Profile:
 {profile}
 
@@ -64,6 +66,8 @@ Candidate Profile Summary:
 
 Job Requirements:
 {requirements}
+
+{positioning}
 
 Instructions:
 - Open with a compelling hook that shows knowledge of the company
