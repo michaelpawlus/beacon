@@ -21,6 +21,7 @@ from beacon.llm.prompts import (
     RESUME_SYSTEM_PROMPT,
     RESUME_TAILOR_PROMPT,
 )
+from beacon.research.archetypes import positioning_for_job
 
 
 @dataclass
@@ -180,6 +181,7 @@ def tailor_resume(conn: sqlite3.Connection, job_id: int, page_limit: int = 1) ->
         requirements=requirements_text,
         profile=profile_text,
         page_limit=page_limit,
+        positioning=positioning_for_job(job, description),
     )
     response = generate(prompt, system=RESUME_SYSTEM_PROMPT, temperature=0.5)
 

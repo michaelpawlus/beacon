@@ -272,3 +272,29 @@ def classify_job(
         "scores": scores,
         "reasons": top_reasons,
     }
+
+
+def positioning_block(key: str | None) -> str:
+    """Prompt-ready positioning section for an archetype key ('' when unknown)."""
+    framing = framing_for(key)
+    if not framing:
+        return ""
+    return (
+        f"Role Positioning ({archetype_label(key)}):\n"
+        f"{framing}\n"
+        "Frame the summary line and choose proof points to match this positioning."
+    )
+
+
+def positioning_for_job(job_row, description: str | None = None) -> str:
+    """Prompt-ready positioning block for a job row.
+
+    Prefers the archetype stored on the row; rows that predate the classifier
+    fall back to on-the-fly classification (deterministic, nothing persisted).
+    Returns '' when the role can't be classified.
+    """
+    keys = job_row.keys() if hasattr(job_row, "keys") else []
+    key = job_row["archetype"] if "archetype" in keys else None
+    if not key:
+        key = classify_job(job_row["title"], description or "")["archetype"]
+    return positioning_block(key)

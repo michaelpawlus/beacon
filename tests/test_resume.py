@@ -184,6 +184,72 @@ class TestTailorResume:
         with pytest.raises(ValueError, match="not found"):
             tailor_resume(db, 99999)
 
+    @patch("beacon.materials.resume.generate")
+    @patch("beacon.materials.resume.generate_structured")
+    def test_prompt_includes_archetype_positioning(self, mock_structured, mock_generate, db):
+        from beacon.research.archetypes import archetype_label, framing_for
+
+        cid = _insert_company(db)
+        job = upsert_job(db, cid, "Data Engineer", url="https://x.com/1",
+                         description_text="dbt and warehouse modeling",
+                         archetype="data_platform", archetype_confidence=0.9)
+        _populate_profile(db)
+
+        mock_structured.return_value = {
+            "required_skills": ["Python"], "preferred_skills": [],
+            "seniority": "senior", "keywords": [], "responsibilities": [], "culture_signals": [],
+        }
+        mock_generate.return_value = LLMResponse(
+            text="# Resume", model="test", input_tokens=10, output_tokens=20,
+        )
+
+        tailor_resume(db, job["id"])
+        prompt = mock_generate.call_args[0][0]
+        assert archetype_label("data_platform") in prompt
+        assert framing_for("data_platform") in prompt
+
+    @patch("beacon.materials.resume.generate")
+    @patch("beacon.materials.resume.generate_structured")
+    def test_prompt_positioning_falls_back_to_classifier(self, mock_structured, mock_generate, db):
+        from beacon.research.archetypes import framing_for
+
+        cid = _insert_company(db)
+        # No stored archetype — the title alone should classify on the fly
+        job = upsert_job(db, cid, "Forward Deployed Engineer", url="https://x.com/1")
+        _populate_profile(db)
+
+        mock_structured.return_value = {
+            "required_skills": [], "preferred_skills": [],
+            "seniority": "senior", "keywords": [], "responsibilities": [], "culture_signals": [],
+        }
+        mock_generate.return_value = LLMResponse(
+            text="# Resume", model="test", input_tokens=10, output_tokens=20,
+        )
+
+        tailor_resume(db, job["id"])
+        prompt = mock_generate.call_args[0][0]
+        assert framing_for("solutions_fde") in prompt
+
+    @patch("beacon.materials.resume.generate")
+    @patch("beacon.materials.resume.generate_structured")
+    def test_prompt_builds_without_archetype(self, mock_structured, mock_generate, db):
+        cid = _insert_company(db)
+        job = upsert_job(db, cid, "Office Manager", url="https://x.com/1")
+        _populate_profile(db)
+
+        mock_structured.return_value = {
+            "required_skills": [], "preferred_skills": [],
+            "seniority": "mid", "keywords": [], "responsibilities": [], "culture_signals": [],
+        }
+        mock_generate.return_value = LLMResponse(
+            text="# Resume", model="test", input_tokens=10, output_tokens=20,
+        )
+
+        tailor_resume(db, job["id"])
+        prompt = mock_generate.call_args[0][0]
+        assert "Role Positioning" not in prompt
+        assert "{positioning}" not in prompt
+
 
 class TestRenderMarkdown:
     def test_render_returns_markdown_text(self):

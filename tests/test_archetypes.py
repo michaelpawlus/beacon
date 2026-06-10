@@ -113,6 +113,34 @@ def test_taxonomy_helpers():
     assert framing_for(None) is None
 
 
+def test_positioning_block():
+    from beacon.research.archetypes import positioning_block
+
+    block = positioning_block("data_platform")
+    assert "Data Platform / Analytics Engineer" in block
+    assert framing_for("data_platform") in block
+    assert positioning_block(None) == ""
+    assert positioning_block("nonsense") == ""
+
+
+def test_positioning_for_job_prefers_stored_archetype():
+    from beacon.research.archetypes import positioning_for_job
+
+    row = {"title": "Data Engineer", "archetype": "product_pm"}
+    assert framing_for("product_pm") in positioning_for_job(row)
+
+
+def test_positioning_for_job_classifies_when_unset():
+    from beacon.research.archetypes import positioning_for_job
+
+    row = {"title": "Data Engineer", "archetype": None}
+    assert framing_for("data_platform") in positioning_for_job(row, "dbt and warehouse modeling")
+    # No archetype column at all (pre-feature row shape)
+    assert framing_for("data_platform") in positioning_for_job({"title": "Analytics Engineer"})
+    # Unclassifiable → empty block, not an error
+    assert positioning_for_job({"title": "Office Manager", "archetype": None}) == ""
+
+
 # ---------------------------------------------------------------------------
 # DB integration
 # ---------------------------------------------------------------------------
