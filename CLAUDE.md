@@ -179,6 +179,12 @@ The subcommands drive the pluggable discovery pipeline.
 | `beacon profile cover-letter <job_id>` | Generate cover letter (lands in vault via `oj capture`) | `--tone TEXT` `--output PATH` `--json` |
 | `beacon profile add-presentation` | Add a presentation | `--title TEXT` `--event TEXT` `--date DATE` `--status TEXT` ... |
 | `beacon profile set-headshot <path>` | Set headshot image path | |
+| `beacon profile stories` | List interview stories | `--tag TEXT` `--archetype KEY` `--status TEXT` `--search TEXT` `--limit N` `--json` |
+| `beacon profile story add <title>` | Guided STAR+R capture (prompts for missing fields) | `--situation` `--task` `--action` `--result` `--reflection` `--archetype KEY` (repeatable) `--tag TEXT` `--work-id N` `--no-interactive` `--json` |
+| `beacon profile story show <id>` | Story in full STAR+R form | `--json` |
+| `beacon profile story update <id>` | Update fields (reflection gate enforced) | field flags + `--status TEXT` `--json` |
+| `beacon profile story suggest <job_id>` | Best stories for a job, ranked by archetype + requirement overlap | `--top N` `--mark-used` `--json` |
+| `beacon profile story coverage` | Coverage of interview dimensions/archetypes by polished stories | `--json` |
 
 ### Materials Sub-commands (`beacon materials ...`)
 
@@ -374,9 +380,10 @@ aspirational-role fit.
 | `beacon career win add <title>` | Log a win as it happens | `--category TEXT` `--description TEXT` `--impact TEXT` `--metric TEXT` (repeatable) `--stakeholder TEXT` `--tech TEXT` `--tag TEXT` `--date DATE` `--from-session N` `--from-project N` `--work-exp N` `--visibility TEXT` `--json` |
 | `beacon career win list` | List wins with filters | `--category TEXT` `--since DATE\|Nd` `--untold` `--visibility TEXT` `--search TEXT` `--limit N` `--json` |
 | `beacon career win show <id>` | Win detail | `--json` |
+| `beacon career win promote <id>` | Distill a win into a STAR+Reflection story — prefills S/T/R from the win, prompts for Reflection | `--reflection TEXT` `--title TEXT` `--json` |
 | `beacon career review` | Brag-document review: win mix, evidence, untold stories | `--since DATE\|Nd` (default 90d) `--vault` `--output PATH` `--json` |
 
-**Win categories** encode the value-overhang thesis: `delivery`, `adoption`, `enablement`, `relationship`, `revenue`, `learning`, `visibility`, `process`. `adoption`/`enablement`/`relationship` count as *diffusion* work; the review reports the diffusion-vs-delivery mix. `--untold` filters to wins not yet promoted to an interview story (`story_id IS NULL` — promotion lands with #30). `beacon career review --vault` writes to `$OBSIDIAN_VAULT_PATH/Job Search/Career Reviews/` via `oj capture` with `type: career-review` frontmatter.
+**Win categories** encode the value-overhang thesis: `delivery`, `adoption`, `enablement`, `relationship`, `revenue`, `learning`, `visibility`, `process`. `adoption`/`enablement`/`relationship` count as *diffusion* work; the review reports the diffusion-vs-delivery mix. `--untold` filters to wins not yet promoted to an interview story (`story_id IS NULL`); promote with `beacon career win promote <id>`. `beacon career review --vault` writes to `$OBSIDIAN_VAULT_PATH/Job Search/Career Reviews/` via `oj capture` with `type: career-review` frontmatter.
 
 ## Agent Usage Examples
 
@@ -482,7 +489,7 @@ Read commands support composable filters (AND logic):
 - SQLite at `data/beacon.db`
 - Schema in `beacon/db/schema.sql`
 - `job_listings` carries `archetype` + `archetype_confidence` (role archetype classification — see `beacon job archetype`)
-- Key tables: `companies`, `ai_signals`, `leadership_signals`, `tools_adopted`, `score_breakdown`, `job_listings`, `applications`, `application_outcomes`, `work_experiences`, `projects`, `skills`, `education`, `publications_talks`, `content_drafts`, `content_calendar`, `media_log`, `network_events`, `network_contacts`, `network_contact_events`, `presentations`, `speaker_profile`, `resume_variants`, `automation_log`, `sessions`, `discovery_candidates`, `wins`
+- Key tables: `companies`, `ai_signals`, `leadership_signals`, `tools_adopted`, `score_breakdown`, `job_listings`, `applications`, `application_outcomes`, `work_experiences`, `projects`, `skills`, `education`, `publications_talks`, `content_drafts`, `content_calendar`, `media_log`, `network_events`, `network_contacts`, `network_contact_events`, `presentations`, `speaker_profile`, `resume_variants`, `automation_log`, `sessions`, `discovery_candidates`, `wins`, `interview_stories`
 - `beacon init` must be run before first use (creates schema + seeds 38 companies)
 
 ## Environment Variables
