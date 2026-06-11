@@ -52,6 +52,7 @@ materials_app = typer.Typer(help="Application materials (resumes, cover letters,
 career_app = typer.Typer(help="Career OS — wins, evidence, brag-doc reviews")
 win_app = typer.Typer(help="Win / evidence log")
 career_app.add_typer(win_app, name="win")
+story_app = typer.Typer(help="STAR+Reflection interview story bank")
 app.add_typer(companies_app, name="companies")
 app.add_typer(job_app, name="job")
 app.add_typer(report_app, name="report")
@@ -66,6 +67,7 @@ app.add_typer(network_app, name="network")
 app.add_typer(gaps_app, name="gaps")
 app.add_typer(materials_app, name="materials")
 app.add_typer(career_app, name="career")
+profile_app.add_typer(story_app, name="story")
 console = Console() if HAS_RICH else None
 
 
@@ -5528,6 +5530,312 @@ def career_review(
                 _print(f"Review written: {result[key]}")
         if result.get("error"):
             _print(f"[red]✗[/red] {result['error']}" if HAS_RICH else f"✗ {result['error']}")
+
+
+# ── Interview Story Bank (#30) ─────────────────────────────────────────
+
+
+@win_app.command("promote")
+def career_win_promote(
+    win_id: int = typer.Argument(..., help="Win ID to distill into a story"),
+    reflection: str = typer.Option(None, "--reflection", "-r", help="The lesson extracted (the seniority signal)"),
+    title: str = typer.Option(None, "--title", help="Story title (default: win title)"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Distill a win into a STAR+Reflection story (prefills STAR, prompts for Reflection)."""
+    from beacon.stories import get_story, promote_win
+
+    conn = get_connection()
+
+    if reflection is None and not as_json:
+        reflection = typer.prompt(
+            "Reflection — what did you learn? (empty keeps the story a draft)",
+            default="", show_default=False,
+        ).strip() or None
+
+    try:
+        story_id = promote_win(conn, win_id, reflection=reflection, title=title)
+    except ValueError as e:
+        if as_json:
+            _json_out({"error": str(e), "code": 1})
+        else:
+            _print(f"[red]✗[/red] {e}" if HAS_RICH else f"✗ {e}")
+        conn.close()
+        raise typer.Exit(1)
+
+    story = get_story(conn, story_id)
+    conn.close()
+
+    result = {"story_id": story_id, "win_id": win_id, "status": story["status"]}
+    if as_json:
+        _json_out(result)
+    else:
+        _stderr(f"Story {story_id} created from win {win_id} (status={story['status']}).")
+        if not story.get("action"):
+            _stderr(f"  Fill in the Action: beacon profile story update {story_id} --action \"...\"")
+
+
+@profile_app.command("stories")
+def profile_stories(
+    tag: str = typer.Option(None, "--tag", "-t", help="Filter by tag"),
+    archetype: str = typer.Option(None, "--archetype", "-a", help="Filter by archetype key"),
+    status: str = typer.Option(None, "--status", help="draft, polished, or retired"),
+    search: str = typer.Option(None, "--search", "-s", help="Search story text"),
+    limit: int = typer.Option(50, "--limit", "-n", help="Max results"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """List interview stories."""
+    from beacon.stories import list_stories
+
+    conn = get_connection()
+    stories = list_stories(conn, tag=tag, archetype=archetype, status=status, search=search, limit=limit)
+    conn.close()
+
+    if as_json:
+        _json_out(stories)
+        return
+
+    if not stories:
+        _print("No stories yet. Capture one with `beacon profile story add` or promote a win.")
+        return
+
+    if HAS_RICH:
+        table = Table(title="Interview Stories")
+        table.add_column("ID", style="dim")
+        table.add_column("Status")
+        table.add_column("Title")
+        table.add_column("Tags")
+        table.add_column("Used", justify="right")
+        for s in stories:
+            table.add_row(
+                str(s["id"]), s["status"], s["title"], s.get("tags") or "", str(s.get("times_used") or 0)
+            )
+        console.print(table)
+    else:
+        for s in stories:
+            print(f"{s['id']}: [{s['status']}] {s['title']}")
+
+
+@story_app.command("add")
+def story_add(
+    title: str = typer.Argument(..., help="Story title"),
+    situation: str = typer.Option(None, "--situation", help="S — the context"),
+    task: str = typer.Option(None, "--task", help="T — what needed doing"),
+    action: str = typer.Option(None, "--action", help="A — what you did"),
+    result: str = typer.Option(None, "--result", help="R — what happened, with numbers"),
+    reflection: str = typer.Option(None, "--reflection", "-r", help="+R — the lesson (gates polished status)"),
+    archetype: list[str] = typer.Option([], "--archetype", "-a", help="Role archetype keys (repeatable)"),
+    tag: list[str] = typer.Option([], "--tag", "-t", help="Tags, e.g. leadership, ambiguity, failure (repeatable)"),
+    work_id: int = typer.Option(None, "--work-id", help="Link to a work experience ID"),
+    interactive: bool = typer.Option(True, "--interactive/--no-interactive", help="Prompt for missing STAR+R fields"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Capture a STAR+Reflection story (prompts for missing fields unless --json/--no-interactive)."""
+    from beacon.stories import add_story
+
+    fields = {"situation": situation, "task": task, "action": action, "result": result, "reflection": reflection}
+    if interactive and not as_json:
+        prompts = {
+            "situation": "Situation — the context",
+            "task": "Task — what needed doing",
+            "action": "Action — what you did",
+            "result": "Result — what happened (numbers!)",
+            "reflection": "Reflection — what did you learn? (empty keeps it a draft)",
+        }
+        for key, label in prompts.items():
+            if fields[key] is None:
+                fields[key] = typer.prompt(label, default="", show_default=False).strip() or None
+
+    conn = get_connection()
+    try:
+        story_id = add_story(
+            conn,
+            title=title,
+            archetypes=archetype or None,
+            tags=tag or None,
+            linked_work_id=work_id,
+            **fields,
+        )
+    except ValueError as e:
+        if as_json:
+            _json_out({"error": str(e), "code": 1})
+        else:
+            _print(f"[red]✗[/red] {e}" if HAS_RICH else f"✗ {e}")
+        conn.close()
+        raise typer.Exit(1)
+    status = "polished" if fields["reflection"] else "draft"
+    conn.close()
+
+    if as_json:
+        _json_out({"id": story_id, "title": title, "status": status})
+    else:
+        _stderr(f"Story added (id={story_id}, status={status}): {title}")
+
+
+@story_app.command("show")
+def story_show(
+    story_id: int = typer.Argument(..., help="Story ID"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Show a story in full STAR+R form."""
+    from beacon.stories import get_story
+
+    conn = get_connection()
+    story = get_story(conn, story_id)
+    conn.close()
+
+    if not story:
+        if as_json:
+            _json_out({"error": "Story not found", "code": 2})
+        else:
+            _print(f"Story {story_id} not found.")
+        raise typer.Exit(2)
+
+    if as_json:
+        _json_out(story)
+        return
+
+    if HAS_RICH:
+        details = f"**Status:** {story['status']}\n"
+        for field in ("situation", "task", "action", "result", "reflection"):
+            if story.get(field):
+                details += f"\n**{field.capitalize()}:** {story[field]}\n"
+        for field, label in (("archetypes", "Archetypes"), ("tags", "Tags")):
+            if story.get(field):
+                details += f"\n**{label}:** {story[field]}\n"
+        if story.get("win_id"):
+            details += f"\n**From win:** {story['win_id']}\n"
+        if story.get("times_used"):
+            details += f"\n**Used:** {story['times_used']}× (last {story.get('last_used_at')})\n"
+        console.print(Panel(details, title=story["title"]))
+    else:
+        print(f"Story {story['id']}: [{story['status']}] {story['title']}")
+        for field in ("situation", "task", "action", "result", "reflection"):
+            if story.get(field):
+                print(f"  {field.capitalize()}: {story[field]}")
+
+
+@story_app.command("update")
+def story_update(
+    story_id: int = typer.Argument(..., help="Story ID"),
+    title: str = typer.Option(None, "--title"),
+    situation: str = typer.Option(None, "--situation"),
+    task: str = typer.Option(None, "--task"),
+    action: str = typer.Option(None, "--action"),
+    result: str = typer.Option(None, "--result"),
+    reflection: str = typer.Option(None, "--reflection", "-r", help="Adding this to a draft promotes it to polished"),
+    status: str = typer.Option(None, "--status", help="draft, polished, or retired"),
+    archetype: list[str] = typer.Option([], "--archetype", "-a", help="Replace archetypes (repeatable)"),
+    tag: list[str] = typer.Option([], "--tag", "-t", help="Replace tags (repeatable)"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Update fields on a story (reflection gate enforced)."""
+    from beacon.stories import get_story, update_story
+
+    conn = get_connection()
+    try:
+        found = update_story(
+            conn,
+            story_id,
+            title=title,
+            situation=situation,
+            task=task,
+            action=action,
+            result=result,
+            reflection=reflection,
+            status=status,
+            archetypes=archetype or None,
+            tags=tag or None,
+        )
+    except ValueError as e:
+        if as_json:
+            _json_out({"error": str(e), "code": 1})
+        else:
+            _print(f"[red]✗[/red] {e}" if HAS_RICH else f"✗ {e}")
+        conn.close()
+        raise typer.Exit(1)
+
+    if not found:
+        conn.close()
+        if as_json:
+            _json_out({"error": "Story not found or no fields to update", "code": 2})
+        else:
+            _print(f"Story {story_id} not found (or nothing to update).")
+        raise typer.Exit(2)
+
+    story = get_story(conn, story_id)
+    conn.close()
+    if as_json:
+        _json_out(story)
+    else:
+        _stderr(f"Story {story_id} updated (status={story['status']}).")
+
+
+@story_app.command("suggest")
+def story_suggest(
+    job_id: int = typer.Argument(..., help="Job listing ID"),
+    top: int = typer.Option(8, "--top", "-n", help="Max stories to suggest"),
+    mark_used: bool = typer.Option(False, "--mark-used", help="Bump times_used/last_used_at on the suggested set"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Pick the best stories for a job, ranked by archetype + requirement overlap."""
+    from beacon.stories import suggest_stories
+
+    conn = get_connection()
+    job = conn.execute("SELECT * FROM job_listings WHERE id = ?", (job_id,)).fetchone()
+    if not job:
+        conn.close()
+        if as_json:
+            _json_out({"error": "Job not found", "code": 2})
+        else:
+            _print(f"Job {job_id} not found.")
+        raise typer.Exit(2)
+
+    payload = suggest_stories(conn, job, top=top, mark_used=mark_used)
+    conn.close()
+    payload["job_id"] = job_id
+
+    if as_json:
+        _json_out(payload)
+        return
+
+    if not payload["suggestions"]:
+        _print("No matching stories. Capture more with `beacon profile story add` or promote wins.")
+        return
+
+    _print(f"Top stories for job {job_id} (archetype: {payload['job_archetype'] or 'unknown'}):")
+    for s in payload["suggestions"]:
+        _print(f"  [{s['id']}] {s['score']:>4}  ({s['status']}) {s['title']}")
+        if s["reasons"]:
+            _print(f"        {', '.join(s['reasons'][:6])}")
+
+
+@story_app.command("coverage")
+def story_coverage(
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Coverage of interview dimensions and archetypes by polished stories."""
+    from beacon.stories import coverage
+
+    conn = get_connection()
+    report = coverage(conn)
+    conn.close()
+
+    if as_json:
+        _json_out(report)
+        return
+
+    _print(f"Stories: {report['total']} total — {report['polished']} polished, {report['draft']} draft")
+    _print("\nInterview dimensions (polished stories per tag):")
+    for tag_name, count in report["by_tag"].items():
+        marker = "✓" if count else "✗"
+        _print(f"  {marker} {tag_name}: {count}")
+    if report["by_archetype"]:
+        _print("\nArchetypes covered:")
+        for key, count in sorted(report["by_archetype"].items(), key=lambda kv: -kv[1]):
+            _print(f"  {key}: {count}")
+    if report["uncovered_tags"]:
+        _print(f"\nNo polished story yet for: {', '.join(report['uncovered_tags'])}")
 
 
 def main():
