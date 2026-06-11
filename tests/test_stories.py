@@ -135,6 +135,18 @@ class TestUpdateStory:
         update_story(db, sid, status="retired")
         assert get_story(db, sid)["status"] == "retired"
 
+    def test_clearing_reflection_demotes_polished_to_draft(self, db):
+        sid = _add_sample(db)
+        update_story(db, sid, reflection="")
+        story = get_story(db, sid)
+        assert story["reflection"] == ""
+        assert story["status"] == "draft"
+
+    def test_clearing_reflection_with_explicit_polish_raises(self, db):
+        sid = _add_sample(db)
+        with pytest.raises(ValueError, match="gate"):
+            update_story(db, sid, reflection="", status="polished")
+
 
 # ── promote_win ─────────────────────────────────────────────────────
 

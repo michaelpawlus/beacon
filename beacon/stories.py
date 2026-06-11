@@ -156,6 +156,9 @@ def update_story(conn: sqlite3.Connection, story_id: int, **kwargs) -> bool:
         updates["status"] = _resolve_status(updates["status"], reflection)
     elif updates.get("reflection") and existing.get("status") == "draft":
         updates["status"] = "polished"
+    elif not reflection and existing.get("status") == "polished":
+        # The gate cuts both ways: clearing the reflection demotes to draft.
+        updates["status"] = "draft"
 
     set_clause = ", ".join(f"{k} = ?" for k in updates) + ", updated_at = datetime('now')"
     params = list(updates.values())
