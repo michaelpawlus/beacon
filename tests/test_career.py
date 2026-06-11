@@ -173,6 +173,24 @@ class TestCurrentRole:
 # ── category_mix / render_review_markdown ───────────────────────────
 
 
+class TestResetDb:
+    def test_reset_clears_career_tables(self, tmp_path):
+        from beacon.db.connection import reset_db
+
+        db_path = tmp_path / "test_beacon.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+        add_win(conn, title="Pre-reset win")
+        conn.close()
+
+        reset_db(db_path)
+
+        conn = get_connection(db_path)
+        assert conn.execute("SELECT COUNT(*) FROM wins").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM interview_stories").fetchone()[0] == 0
+        conn.close()
+
+
 class TestCategoryMix:
     def test_counts_and_split(self, db):
         _add_sample(db, category="adoption")
