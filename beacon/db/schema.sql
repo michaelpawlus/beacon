@@ -523,6 +523,31 @@ CREATE TABLE IF NOT EXISTS wins (
 CREATE INDEX IF NOT EXISTS idx_wins_category ON wins(category);
 CREATE INDEX IF NOT EXISTS idx_wins_date ON wins(win_date DESC);
 
+-- Career OS: STAR+Reflection interview story bank (#30). Stories are distilled
+-- from wins (`beacon career win promote`) or captured directly; the Reflection
+-- field is the seniority signal and gates promotion from draft to polished.
+CREATE TABLE IF NOT EXISTS interview_stories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    situation TEXT,
+    task TEXT,
+    action TEXT,
+    result TEXT,
+    reflection TEXT,          -- lesson extracted; required for status='polished'
+    archetypes TEXT,          -- JSON array of archetype keys (beacon/research/archetypes.py)
+    tags TEXT,                -- JSON array (leadership, ambiguity, failure, scope-cut, ...)
+    target_role_ids TEXT,     -- JSON array of role_targets ids (#43; plain column until then)
+    linked_work_id INTEGER REFERENCES work_experiences(id) ON DELETE SET NULL,
+    win_id INTEGER REFERENCES wins(id) ON DELETE SET NULL,
+    status TEXT DEFAULT 'draft' CHECK(status IN ('draft','polished','retired')),
+    times_used INTEGER DEFAULT 0,
+    last_used_at TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_stories_status ON interview_stories(status);
+
 -- Cached structured requirements for a job listing — populated on first
 -- `beacon match-jobs` run per listing, refreshed when the listing's
 -- date_last_seen advances past extracted_at.
