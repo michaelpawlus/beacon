@@ -93,11 +93,15 @@ def list_stories(
     params: list = []
 
     if tag:
-        clauses.append("tags LIKE ?")
-        params.append(f"%{tag}%")
+        clauses.append(
+            "tags IS NOT NULL AND EXISTS (SELECT 1 FROM json_each(tags) WHERE json_each.value = ?)"
+        )
+        params.append(tag)
     if archetype:
-        clauses.append("archetypes LIKE ?")
-        params.append(f"%{archetype}%")
+        clauses.append(
+            "archetypes IS NOT NULL AND EXISTS (SELECT 1 FROM json_each(archetypes) WHERE json_each.value = ?)"
+        )
+        params.append(archetype)
     if status:
         clauses.append("status = ?")
         params.append(status)

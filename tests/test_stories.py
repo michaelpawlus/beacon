@@ -92,10 +92,23 @@ class TestListStories:
         _add_sample(db, title="Other", tags=["failure"])
         assert [s["title"] for s in list_stories(db, tag="failure")] == ["Other"]
 
+    def test_tag_filter_is_exact_not_substring(self, db):
+        _add_sample(db, title="Failure story", tags=["failure"])
+        assert list_stories(db, tag="ai") == []
+        assert list_stories(db, tag="fail") == []
+
     def test_filter_by_archetype(self, db):
         _add_sample(db)
         _add_sample(db, title="Platform story", archetypes=["data_platform"])
         assert [s["title"] for s in list_stories(db, archetype="data_platform")] == ["Platform story"]
+
+    def test_archetype_filter_is_exact_not_substring(self, db):
+        _add_sample(db, title="ML story", archetypes=["ml_ds"])
+        assert list_stories(db, archetype="ml") == []
+
+    def test_tag_filter_skips_null_tags(self, db):
+        _add_sample(db, title="No tags", tags=None)
+        assert list_stories(db, tag="failure") == []
 
     def test_filter_by_status(self, db):
         _add_sample(db)
