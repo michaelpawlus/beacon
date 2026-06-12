@@ -426,9 +426,10 @@ entry). Rows that already carry job-market demand from `gaps analyze` are
 merged, not overwritten — job demand_count + examples survive, target
 entries layer in, priority is raised when the target priority is higher.
 Purely target-owned rows whose demand has vanished (skill acquired, target
-dropped) are auto-retired — closed with demand/priority zeroed — while
-mixed rows just shed their stale target entries; the sync result reports
-`inserted`/`updated`/`retired`. The
+dropped) are auto-retired — closed with demand/priority zeroed — and
+reopened if target demand returns (a manual `closed` set via `gaps update`
+is respected); mixed rows just shed their stale target entries. The sync
+result reports `inserted`/`updated`/`retired`/`reopened`. The
 payload also includes `jd_vs_field`: `field_only` lists attributes real FDEs
 report as success-critical that no JD demands — the JD-vs-reality disconnect
 the dispatch log exists to expose.

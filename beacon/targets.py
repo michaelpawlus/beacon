@@ -501,13 +501,17 @@ def sync_target_gaps(conn: sqlite3.Connection, gaps: list[dict]) -> dict:
     higher. Purely target-owned rows whose demand has vanished — skill
     acquired, or the demanding target dropped — are retired (status closed,
     demand/priority zeroed); mixed rows just shed their stale target entries.
+    Auto-retired rows (recognizable by closed + zeroed demand/priority) are
+    reopened when target demand returns; a user's manual `closed` is kept.
     """
     inserted = 0
     updated = 0
+    reopened = 0
     for gap in gaps:
         target_entries = [{**t, "target": True} for t in gap["example_targets"]]
         existing = conn.execute(
-            "SELECT id, demand_count, priority, category, example_jobs FROM skill_gaps WHERE skill_name = ?",
+            "SELECT id, demand_count, priority, category, example_jobs, status "
+            "FROM skill_gaps WHERE skill_name = ?",
             (gap["skill_name"],),
         ).fetchone()
         if existing:
@@ -531,13 +535,24 @@ def sync_target_gaps(conn: sqlite3.Connection, gaps: list[dict]) -> dict:
                     ),
                 )
             else:
+                # An auto-retired row carries the closed + zeroed fingerprint
+                # the retirement path writes; demand is back, so reopen it.
+                # A manually closed row (non-zero demand/priority) stays closed.
+                auto_retired = (
+                    existing["status"] == "closed"
+                    and (existing["demand_count"] or 0) == 0
+                    and (existing["priority"] or 0) == 0
+                )
+                status = "open" if auto_retired else existing["status"]
+                if auto_retired:
+                    reopened += 1
                 conn.execute(
                     """UPDATE skill_gaps
                        SET demand_count = ?, category = ?, example_jobs = ?,
-                           priority = ?, updated_at = datetime('now')
+                           priority = ?, status = ?, updated_at = datetime('now')
                        WHERE id = ?""",
                     (gap["demand_count"], gap["category"], json.dumps(target_entries),
-                     gap["priority"], existing["id"]),
+                     gap["priority"], status, existing["id"]),
                 )
             updated += 1
         else:
@@ -578,7 +593,7 @@ def sync_target_gaps(conn: sqlite3.Connection, gaps: list[dict]) -> dict:
             )
 
     conn.commit()
-    return {"inserted": inserted, "updated": updated, "retired": retired}
+    return {"inserted": inserted, "updated": updated, "retired": retired, "reopened": reopened}
 
 
 def jd_vs_field(

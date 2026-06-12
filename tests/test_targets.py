@@ -356,6 +356,36 @@ class TestTargetGaps:
         row = conn.execute("SELECT status FROM skill_gaps WHERE skill_name = 'Kafka'").fetchone()
         assert row["status"] == "closed"
 
+    def test_sync_reopens_retired_gap_when_demand_returns(self, db):
+        # Codex review, PR #51: an auto-retired gap must reopen when its
+        # target is reactivated (or a new target demands the skill again).
+        conn, _ = db
+        tid = _add_basic_target(conn, required_skills=["Kafka"])
+        sync_target_gaps(conn, analyze_target_gaps(conn)["gaps"])
+        update_target(conn, tid, status="dropped")
+        sync_target_gaps(conn, analyze_target_gaps(conn)["gaps"])  # retires Kafka
+        update_target(conn, tid, status="active")
+        result = sync_target_gaps(conn, analyze_target_gaps(conn)["gaps"])
+        assert result["reopened"] == 1
+        row = conn.execute("SELECT * FROM skill_gaps WHERE skill_name = 'Kafka'").fetchone()
+        assert row["status"] == "open"
+        assert row["demand_count"] == 1
+        assert row["priority"] > 0
+
+    def test_sync_keeps_manually_closed_gap_closed(self, db):
+        # A user-closed row (non-zero demand fingerprint) must not be reopened
+        # just because a target demands the skill.
+        conn, _ = db
+        _add_basic_target(conn, required_skills=["Kafka"])
+        sync_target_gaps(conn, analyze_target_gaps(conn)["gaps"])
+        from beacon.research.skill_gaps import update_skill_gap_status
+
+        update_skill_gap_status(conn, "Kafka", "closed")
+        result = sync_target_gaps(conn, analyze_target_gaps(conn)["gaps"])
+        assert result["reopened"] == 0
+        row = conn.execute("SELECT status FROM skill_gaps WHERE skill_name = 'Kafka'").fetchone()
+        assert row["status"] == "closed"
+
     def test_sync_merges_job_driven_row_without_clobbering(self, db):
         # Codex review, PR #51: a market gap (e.g. 20 jobs demand Kafka) must
         # keep its job demand + examples when a target also demands the skill.
