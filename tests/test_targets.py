@@ -106,6 +106,34 @@ class TestAddTarget:
         assert "Kubernetes" in skills
         assert "Python" in skills
 
+    def test_explicit_skills_canonicalized(self, db):
+        # `--skill k8s` must store the canonical name so fit/gap comparisons
+        # match a profile that has `Kubernetes` (Codex review, PR #51).
+        conn, _ = db
+        tid = add_target(conn, title="FDE", required_skills=["k8s", "Kubernetes", "py"])
+        assert json.loads(get_target(conn, tid)["required_skills"]) == ["Kubernetes", "Python"]
+
+    def test_alias_skill_matches_canonical_profile(self, db):
+        conn, _ = db
+        _add_skill(conn, "Kubernetes")
+        tid = add_target(conn, title="FDE", required_skills=["k8s"])
+        fit = compute_target_fit(conn, get_target(conn, tid))
+        assert fit["matched"] == ["Kubernetes"]
+        assert fit["missing"] == []
+
+    def test_legacy_alias_rows_canonicalized_on_read(self, db):
+        # Rows written before storage-side normalization still compare right.
+        conn, _ = db
+        tid = _add_basic_target(conn)
+        conn.execute(
+            "UPDATE role_targets SET required_skills = ? WHERE id = ?",
+            (json.dumps(["k8s"]), tid),
+        )
+        conn.commit()
+        from beacon.targets import required_skills_for
+
+        assert required_skills_for(get_target(conn, tid)) == ["Kubernetes"]
+
     def test_explicit_skills_win_over_extraction(self, db):
         conn, _ = db
         tid = add_target(

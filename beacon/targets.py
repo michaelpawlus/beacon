@@ -55,6 +55,20 @@ def _parse_json_list(value: str | None) -> list:
         return [value]
 
 
+def _canon_skill_list(skills: list) -> list[str]:
+    """Canonicalize + dedupe a skill list, preserving order — fit and gap
+    comparisons assume required skills speak the same canonical names as the
+    profile (e.g. `--skill k8s` must match a profile's `Kubernetes`)."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for s in skills:
+        canonical = _canon(str(s))
+        if canonical.lower() not in seen:
+            seen.add(canonical.lower())
+            out.append(canonical)
+    return out
+
+
 def extract_target_skills(description: str, profile_skills: set[str] | None = None) -> list[str]:
     """Pull canonical skill names out of a JD snapshot — deterministic, no LLM.
 
@@ -109,6 +123,8 @@ def add_target(
 
     if required_skills is None and description_snapshot:
         required_skills = extract_target_skills(description_snapshot)
+    elif required_skills:
+        required_skills = _canon_skill_list(required_skills)
 
     cur = conn.execute(
         """INSERT INTO role_targets
@@ -215,11 +231,13 @@ def update_target(
 
 
 def required_skills_for(target: dict) -> list[str]:
-    """Canonical required skills for a target (frozen JSON, falling back to extraction)."""
+    """Canonical required skills for a target (frozen JSON, falling back to
+    extraction). Canonicalized on read too, so rows written before the
+    storage-side normalization (or edited by hand) still compare correctly."""
     skills = _parse_json_list(target.get("required_skills"))
     if not skills and target.get("description_snapshot"):
         skills = extract_target_skills(target["description_snapshot"])
-    return [str(s) for s in skills]
+    return _canon_skill_list(skills)
 
 
 # ---------------------------------------------------------------------------
