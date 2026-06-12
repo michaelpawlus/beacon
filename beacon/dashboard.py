@@ -33,6 +33,9 @@ class DashboardData:
     # Feedback summary
     feedback: dict[str, int] = field(default_factory=dict)
 
+    # Aspirational role targets (latest fit + snapshot freshness)
+    targets: list[dict] = field(default_factory=list)
+
     # Action items
     action_items: list[str] = field(default_factory=list)
 
@@ -161,9 +164,49 @@ def _get_feedback_summary(conn: sqlite3.Connection) -> dict[str, int]:
     return {"total_outcomes": total, "positive_outcomes": positive}
 
 
+def _get_targets(conn: sqlite3.Connection) -> list[dict]:
+    """Active role targets with latest fit, for the dashboard panel."""
+    from beacon.targets import list_targets
+
+    return list_targets(conn, status="active")
+
+
+def _target_action_items(conn: sqlite3.Connection) -> list[str]:
+    """Keep the aspirational track top of mind: staleness + next gap to close."""
+    from beacon.targets import SNAPSHOT_STALE_DAYS, analyze_target_gaps, latest_snapshot_age_days, list_targets
+
+    items = []
+    targets = list_targets(conn, status="active")
+    if not targets:
+        items.append("No aspirational role targets tracked — seed the board with `beacon target seed`")
+        return items
+
+    age = latest_snapshot_age_days(conn)
+    if age is None:
+        items.append("Role targets have no fit baseline — run `beacon target fit --all`")
+    elif age > SNAPSHOT_STALE_DAYS:
+        items.append(f"Quarterly target fit snapshot due (last run {age}d ago) — `beacon target fit --all`")
+
+    analysis = analyze_target_gaps(conn)
+    open_gaps = [g for g in analysis["gaps"]]
+    if open_gaps:
+        top = open_gaps[0]
+        items.append(
+            f"Next target gap to close: {top['skill_name']} "
+            f"({top['demand_count']} targets demand it, priority {top['priority']})"
+        )
+        evidenced = [g for g in open_gaps if g["win_evidence_count"]]
+        if evidenced:
+            names = ", ".join(g["skill_name"] for g in evidenced[:3])
+            items.append(f"Win evidence accumulating against target gaps ({names}) — add to skills/resume")
+    return items
+
+
 def _generate_action_items(conn: sqlite3.Connection) -> list[str]:
     """Generate prioritized action items."""
     items = []
+
+    items.extend(_target_action_items(conn))
 
     # New high-relevance jobs
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
@@ -238,6 +281,7 @@ def gather_dashboard_data(conn: sqlite3.Connection) -> DashboardData:
     data.presence = _get_presence_health(conn)
     data.content = _get_content_pipeline(conn)
     data.feedback = _get_feedback_summary(conn)
+    data.targets = _get_targets(conn)
     data.action_items = _generate_action_items(conn)
 
     return data

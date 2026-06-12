@@ -53,6 +53,9 @@ career_app = typer.Typer(help="Career OS — wins, evidence, brag-doc reviews")
 win_app = typer.Typer(help="Win / evidence log")
 career_app.add_typer(win_app, name="win")
 story_app = typer.Typer(help="STAR+Reflection interview story bank")
+target_app = typer.Typer(help="Aspirational role targets — frozen JDs, fit-over-time, target-scoped gaps")
+dispatch_app = typer.Typer(help="Dispatches from real FDEs in the wild")
+target_app.add_typer(dispatch_app, name="dispatch")
 app.add_typer(companies_app, name="companies")
 app.add_typer(job_app, name="job")
 app.add_typer(report_app, name="report")
@@ -67,6 +70,7 @@ app.add_typer(network_app, name="network")
 app.add_typer(gaps_app, name="gaps")
 app.add_typer(materials_app, name="materials")
 app.add_typer(career_app, name="career")
+app.add_typer(target_app, name="target")
 profile_app.add_typer(story_app, name="story")
 console = Console() if HAS_RICH else None
 
@@ -5485,16 +5489,17 @@ def career_review(
     output: str = typer.Option(None, "--output", "-o", help="Write the review to a local path"),
     as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
-    """Render the brag-document review: win mix, evidence, untold stories."""
-    from beacon.career import current_role, list_wins, render_review_markdown, resolve_since
+    """Render the brag-document review: win mix, evidence, untold stories, target progress."""
+    from beacon.career import current_role, list_wins, render_review_markdown, resolve_since, target_progress
 
     conn = get_connection()
     wins = list_wins(conn, since=since, limit=500)
     role = current_role(conn)
+    targets = target_progress(conn, since=since)
     conn.close()
 
     since_label = f"since {resolve_since(since)}"
-    markdown = render_review_markdown(wins, since_label, role=role)
+    markdown = render_review_markdown(wins, since_label, role=role, targets=targets)
 
     result = {"win_count": len(wins), "since": resolve_since(since)}
 
@@ -5836,6 +5841,569 @@ def story_coverage(
             _print(f"  {key}: {count}")
     if report["uncovered_tags"]:
         _print(f"\nNo polished story yet for: {', '.join(report['uncovered_tags'])}")
+
+
+# ── Aspirational Role Targets (#43) ────────────────────────────────────
+
+
+TARGET_GAPS_SCHEMA_VERSION = 1
+
+
+def _target_or_exit(conn, target_id: int, as_json: bool):
+    from beacon.targets import get_target
+
+    target = get_target(conn, target_id)
+    if not target:
+        conn.close()
+        if as_json:
+            _json_out({"error": "Target not found", "code": 2})
+        else:
+            _print(f"Target {target_id} not found.")
+        raise typer.Exit(2)
+    return target
+
+
+@target_app.command("add")
+def target_add(
+    title: str = typer.Argument(None, help="Role title (optional with --from-job / --url --fetch)"),
+    from_job: int = typer.Option(None, "--from-job", help="Freeze an existing job listing into a target"),
+    url: str = typer.Option(None, "--url", "-u", help="JD URL (with --fetch, extract and freeze it)"),
+    fetch: bool = typer.Option(False, "--fetch", help="Auto-extract title/company/description from --url"),
+    company: str = typer.Option(None, "--company", "-c", help="Exemplar employer name (linked if known)"),
+    archetype: str = typer.Option(None, "--archetype", "-a", help="Role archetype key"),
+    horizon: str = typer.Option(None, "--horizon", help="1y, 2y, 3y, or 4y"),
+    comp_min: int = typer.Option(None, "--comp-min", help="Target comp band floor"),
+    comp_max: int = typer.Option(None, "--comp-max", help="Target comp band ceiling"),
+    skill: list[str] = typer.Option([], "--skill", help="Required skill (repeatable; else extracted from the JD)"),
+    description: str = typer.Option(None, "--description", "-d", help="JD text to freeze as the snapshot"),
+    why: str = typer.Option(None, "--why", help="Why this target is on the board"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Capture an aspirational role target — the JD is frozen so the target outlives the posting."""
+    from beacon.targets import add_target, required_skills_for
+
+    conn = get_connection()
+    company_id = None
+    source_job_id = None
+
+    if from_job is not None:
+        job = conn.execute(
+            "SELECT j.*, c.name AS company_name FROM job_listings j "
+            "JOIN companies c ON j.company_id = c.id WHERE j.id = ?",
+            (from_job,),
+        ).fetchone()
+        if not job:
+            conn.close()
+            if as_json:
+                _json_out({"error": f"Job {from_job} not found", "code": 2})
+            else:
+                _print(f"Job {from_job} not found.")
+            raise typer.Exit(2)
+        source_job_id = job["id"]
+        title = title or job["title"]
+        company_id = job["company_id"]
+        archetype = archetype or job["archetype"]
+        description = description or job["description_text"]
+        url = url or job["url"]
+
+    if fetch:
+        if not url:
+            msg = "--fetch requires --url"
+            if as_json:
+                _json_out({"error": msg, "code": 1})
+            else:
+                _print(msg)
+            conn.close()
+            raise typer.Exit(1)
+        try:
+            from beacon.research.job_fetcher import fetch_job_from_url
+            extracted = fetch_job_from_url(url)
+        except (ImportError, RuntimeError) as e:
+            if as_json:
+                _json_out({"error": str(e), "code": 1})
+            else:
+                _print(str(e))
+            conn.close()
+            raise typer.Exit(1) from e
+        title = title or extracted.get("title") or None
+        company = company or extracted.get("company") or None
+        description = description or extracted.get("description_text") or None
+
+    if company and company_id is None:
+        row = conn.execute(
+            "SELECT id FROM companies WHERE name = ? OR name LIKE ?",
+            (company, f"%{company}%"),
+        ).fetchone()
+        company_id = row["id"] if row else None
+
+    if not title:
+        msg = "Missing title (pass TITLE, --from-job, or --url --fetch)"
+        if as_json:
+            _json_out({"error": msg, "code": 1})
+        else:
+            _print(msg)
+        conn.close()
+        raise typer.Exit(1)
+
+    try:
+        target_id = add_target(
+            conn,
+            title=title,
+            company_id=company_id,
+            source_job_id=source_job_id,
+            source_url=url,
+            archetype=archetype,
+            horizon=horizon,
+            target_comp_min=comp_min,
+            target_comp_max=comp_max,
+            description_snapshot=description,
+            required_skills=skill or None,
+            why=why,
+        )
+    except ValueError as e:
+        if as_json:
+            _json_out({"error": str(e), "code": 1})
+        else:
+            _print(f"[red]✗[/red] {e}" if HAS_RICH else f"✗ {e}")
+        conn.close()
+        raise typer.Exit(1)
+
+    target = conn.execute("SELECT * FROM role_targets WHERE id = ?", (target_id,)).fetchone()
+    skills = required_skills_for(dict(target))
+    conn.close()
+
+    if as_json:
+        _json_out({"id": target_id, "title": title, "horizon": horizon, "required_skills": skills})
+    else:
+        _stderr(f"Target added (id={target_id}): {title}")
+        if skills:
+            _stderr(f"  Required skills frozen: {', '.join(skills)}")
+        _stderr(f"  Snapshot the baseline: beacon target fit {target_id}")
+
+
+@target_app.command("list")
+def target_list(
+    horizon: str = typer.Option(None, "--horizon", help="Filter by horizon (1y, 2y, 3y, 4y)"),
+    status: str = typer.Option("active", "--status", "-s", help="active, achieved, dropped, or all"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """List role targets with latest fit and snapshot freshness."""
+    from beacon.targets import SNAPSHOT_STALE_DAYS, latest_snapshot_age_days, list_targets
+
+    conn = get_connection()
+    targets = list_targets(conn, horizon=horizon, status=None if status == "all" else status)
+    age = latest_snapshot_age_days(conn)
+    conn.close()
+
+    if as_json:
+        _json_out({"targets": targets, "latest_snapshot_age_days": age})
+        return
+
+    if not targets:
+        _print("No role targets yet. Seed the board with [bold]beacon target seed[/bold] "
+               "or capture one with [bold]beacon target add[/bold].")
+        return
+
+    if HAS_RICH:
+        table = Table(title="Aspirational Role Targets")
+        table.add_column("ID", style="dim")
+        table.add_column("Horizon")
+        table.add_column("Title", style="bold")
+        table.add_column("Company")
+        table.add_column("Comp band")
+        table.add_column("Fit", justify="right")
+        table.add_column("Status")
+        for t in targets:
+            comp = ""
+            if t.get("target_comp_min") or t.get("target_comp_max"):
+                comp = f"${(t.get('target_comp_min') or 0)//1000}k–${(t.get('target_comp_max') or 0)//1000}k"
+            fit = f"{t['latest_fit']:.1f}" if t.get("latest_fit") is not None else "—"
+            table.add_row(str(t["id"]), t.get("horizon") or "—", t["title"],
+                          t.get("company_name") or "—", comp, fit, t["status"])
+        console.print(table)
+    else:
+        for t in targets:
+            fit = f"{t['latest_fit']:.1f}" if t.get("latest_fit") is not None else "—"
+            print(f"{t['id']}: [{t.get('horizon') or '—'}] {t['title']} @ {t.get('company_name') or '—'} (fit {fit})")
+
+    if age is None:
+        _print("\nNo fit snapshots yet — run [bold]beacon target fit --all[/bold] to set the baseline.")
+    elif age > SNAPSHOT_STALE_DAYS:
+        _print(f"\nLast fit snapshot is {age} days old — quarterly check due: [bold]beacon target fit --all[/bold]")
+
+
+@target_app.command("show")
+def target_show(
+    target_id: int = typer.Argument(..., help="Target ID"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Show a target in full: frozen JD, required skills, latest fit."""
+    from beacon.targets import required_skills_for
+
+    conn = get_connection()
+    target = _target_or_exit(conn, target_id, as_json)
+    skills = required_skills_for(target)
+    snap_count = conn.execute(
+        "SELECT COUNT(*) AS cnt FROM role_fit_snapshots WHERE role_target_id = ?", (target_id,)
+    ).fetchone()["cnt"]
+    conn.close()
+
+    target["required_skills"] = skills
+    target["snapshot_count"] = snap_count
+
+    if as_json:
+        _json_out(target)
+        return
+
+    if HAS_RICH:
+        details = f"**Status:** {target['status']}  |  **Horizon:** {target.get('horizon') or '—'}\n"
+        if target.get("company_name"):
+            details += f"**Company:** {target['company_name']}\n"
+        if target.get("target_comp_min") or target.get("target_comp_max"):
+            details += f"**Comp band:** ${target.get('target_comp_min') or 0:,}–${target.get('target_comp_max') or 0:,}\n"
+        if target.get("archetype"):
+            details += f"**Archetype:** {target['archetype']}\n"
+        if target.get("why"):
+            details += f"\n**Why:** {target['why']}\n"
+        if skills:
+            details += f"\n**Required skills:** {', '.join(skills)}\n"
+        if target.get("latest_fit") is not None:
+            details += f"\n**Latest fit:** {target['latest_fit']:.1f} ({(target.get('last_computed_at') or '')[:10]}, {snap_count} snapshots)\n"
+        else:
+            details += "\n**Latest fit:** never computed — run `beacon target fit " + str(target_id) + "`\n"
+        console.print(Panel(details, title=target["title"]))
+    else:
+        print(f"Target {target['id']}: {target['title']} ({target['status']}, {target.get('horizon') or '—'})")
+        print(f"  Skills: {', '.join(skills)}")
+
+
+@target_app.command("update")
+def target_update(
+    target_id: int = typer.Argument(..., help="Target ID"),
+    status: str = typer.Option(None, "--status", "-s", help="active, achieved, or dropped"),
+    horizon: str = typer.Option(None, "--horizon", help="1y, 2y, 3y, or 4y"),
+    why: str = typer.Option(None, "--why", help="Update the rationale"),
+    archetype: str = typer.Option(None, "--archetype", "-a", help="Role archetype key"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Update a target (status / horizon / why / archetype)."""
+    from beacon.targets import get_target, update_target
+
+    conn = get_connection()
+    try:
+        found = update_target(conn, target_id, status=status, horizon=horizon, why=why, archetype=archetype)
+    except ValueError as e:
+        conn.close()
+        if as_json:
+            _json_out({"error": str(e), "code": 1})
+        else:
+            _print(f"[red]✗[/red] {e}" if HAS_RICH else f"✗ {e}")
+        raise typer.Exit(1)
+
+    if not found:
+        conn.close()
+        if as_json:
+            _json_out({"error": "Target not found or no fields to update", "code": 2})
+        else:
+            _print(f"Target {target_id} not found (or nothing to update).")
+        raise typer.Exit(2)
+
+    target = get_target(conn, target_id)
+    conn.close()
+    if as_json:
+        _json_out(target)
+    else:
+        _stderr(f"Target {target_id} updated (status={target['status']}, horizon={target.get('horizon') or '—'}).")
+
+
+@target_app.command("fit")
+def target_fit(
+    target_id: int = typer.Argument(None, help="Target ID (omit with --all)"),
+    all_targets: bool = typer.Option(False, "--all", help="Snapshot every active target"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Compute fit against the frozen JD and write a snapshot row (the time series)."""
+    from beacon.research.job_fit import load_profile_snapshot
+    from beacon.targets import list_targets, snapshot_fit
+
+    if target_id is None and not all_targets:
+        msg = "Pass a target ID or --all"
+        if as_json:
+            _json_out({"error": msg, "code": 1})
+        else:
+            _print(msg)
+        raise typer.Exit(1)
+
+    conn = get_connection()
+    if all_targets:
+        targets = list_targets(conn, status="active")
+        if not targets:
+            conn.close()
+            if as_json:
+                _json_out({"error": "No active targets", "code": 2})
+            else:
+                _print("No active targets. Run [bold]beacon target seed[/bold] first.")
+            raise typer.Exit(2)
+    else:
+        targets = [_target_or_exit(conn, target_id, as_json)]
+
+    profile = load_profile_snapshot(conn)
+    results = [snapshot_fit(conn, t, profile=profile) for t in targets]
+    conn.close()
+
+    if as_json:
+        _json_out({"snapshots": results})
+        return
+
+    for r in results:
+        delta = ""
+        if "fit_delta" in r:
+            arrow = "↑" if r["fit_delta"] > 0 else ("↓" if r["fit_delta"] < 0 else "→")
+            delta = f"  ({arrow} {r['fit_delta']:+.1f} vs last)"
+        company = f" @ {r['company']}" if r.get("company") else ""
+        _print(f"  [{r['target_id']}] fit={r['fit_score']:.1f}{delta}  {r['title']}{company}")
+        if r.get("gaps_closed_since_last"):
+            _print(f"      closed since last: {', '.join(r['gaps_closed_since_last'])}")
+        if r["missing"]:
+            _print(f"      missing: {', '.join(r['missing'][:8])}")
+    _print("\nSnapshot written — trajectory: [bold]beacon target trajectory <id>[/bold]")
+
+
+@target_app.command("gaps")
+def target_gaps(
+    sync: bool = typer.Option(True, "--sync/--no-sync", help="Upsert into skill_gaps so gaps list/export follow aspirational demand"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Skill gaps scoped to active targets, horizon-weighted, with win evidence and field validation."""
+    from beacon.targets import analyze_target_gaps, sync_target_gaps
+
+    conn = get_connection()
+    analysis = analyze_target_gaps(conn)
+    synced = sync_target_gaps(conn, analysis["gaps"]) if sync else None
+
+    # Attach tracked status (open/learning/closed) so prioritization can skip
+    # gaps already in motion.
+    statuses = {
+        r["skill_name"].lower(): r["status"]
+        for r in conn.execute("SELECT skill_name, status FROM skill_gaps").fetchall()
+    }
+    for g in analysis["gaps"]:
+        g["status"] = statuses.get(g["skill_name"].lower(), "open")
+    conn.close()
+
+    if as_json:
+        payload = {
+            "schema_version": TARGET_GAPS_SCHEMA_VERSION,
+            "gaps": analysis["gaps"],
+            "targets_analyzed": analysis["targets_analyzed"],
+            "jd_vs_field": analysis["jd_vs_field"],
+        }
+        if synced is not None:
+            payload["synced"] = synced
+        _json_out(payload)
+        return
+
+    if not analysis["gaps"]:
+        if analysis["targets_analyzed"] == 0:
+            _print("No active targets. Run [bold]beacon target seed[/bold] first.")
+        else:
+            _print("No target gaps — required skills fully covered by the profile.")
+        return
+
+    if HAS_RICH:
+        table = Table(title=f"Target Gaps ({analysis['targets_analyzed']} targets, horizon-weighted)")
+        table.add_column("Skill", style="bold")
+        table.add_column("Priority", justify="right")
+        table.add_column("Targets", justify="right")
+        table.add_column("Field", justify="center")
+        table.add_column("Wins", justify="right")
+        table.add_column("Status")
+        for g in analysis["gaps"]:
+            status_color = {"open": "red", "learning": "yellow", "closed": "green"}.get(g["status"], "dim")
+            table.add_row(
+                g["skill_name"], str(g["priority"]), str(g["demand_count"]),
+                "✓" if g["field_observed"] else "",
+                str(g["win_evidence_count"]) if g["win_evidence_count"] else "",
+                f"[{status_color}]{g['status']}[/{status_color}]",
+            )
+        console.print(table)
+    else:
+        for g in analysis["gaps"]:
+            field = " [field]" if g["field_observed"] else ""
+            print(f"  [{g['status']}] {g['skill_name']} (priority {g['priority']}, {g['demand_count']} targets){field}")
+
+    evidenced = [g for g in analysis["gaps"] if g["win_evidence_count"]]
+    if evidenced:
+        _print("\nWin evidence accumulating (resume candidates):")
+        for g in evidenced:
+            titles = "; ".join(w["title"] for w in g["example_wins"][:2])
+            _print(f"  • {g['skill_name']} — {titles}")
+
+    jvf = analysis["jd_vs_field"]
+    if jvf["dispatch_count"] and jvf["field_only"]:
+        _print(f"\nField-observed but absent from JDs ({jvf['dispatch_count']} dispatches):")
+        _print(f"  {', '.join(jvf['field_only'])}")
+    elif not jvf["dispatch_count"]:
+        _print("\nNo FDE dispatches logged yet — capture field reports with [bold]beacon target dispatch add[/bold].")
+
+
+@target_app.command("trajectory")
+def target_trajectory(
+    target_id: int = typer.Argument(..., help="Target ID"),
+    vault: bool = typer.Option(False, "--vault", help="Write the trajectory note to the Obsidian vault via oj capture"),
+    output: str = typer.Option(None, "--output", "-o", help="Write to a local path"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Fit-over-time for a target — what moved the number, current gaps, resume-ready evidence."""
+    from beacon.targets import get_trajectory, render_trajectory_markdown
+
+    conn = get_connection()
+    trajectory = get_trajectory(conn, target_id)
+    conn.close()
+
+    if not trajectory:
+        if as_json:
+            _json_out({"error": "Target not found", "code": 2})
+        else:
+            _print(f"Target {target_id} not found.")
+        raise typer.Exit(2)
+
+    markdown = render_trajectory_markdown(trajectory)
+    target = trajectory["target"]
+    result = {
+        "target_id": target_id,
+        "title": target["title"],
+        "snapshots": trajectory["snapshots"],
+        "deltas": trajectory["deltas"],
+    }
+
+    if output:
+        Path(output).write_text(markdown)
+        result["path"] = output
+
+    if vault:
+        try:
+            info = _capture_to_vault(
+                body=markdown,
+                folder="Job Search/Targets",
+                title=f"{datetime.now().strftime('%Y-%m-%d')}-{_slugify(target['title'])}-trajectory",
+                fm_type="target-trajectory",
+                company=target.get("company_name") or "",
+                role=target["title"],
+                extra_tags=["target", "trajectory"],
+            )
+            result["vault_path"] = info.get("path")
+        except RuntimeError as e:
+            result["error"] = str(e)
+
+    if as_json:
+        result["markdown"] = markdown
+        _json_out(result)
+        return
+
+    if not output and not vault:
+        print(markdown)
+    else:
+        for key in ("path", "vault_path"):
+            if result.get(key):
+                _print(f"Trajectory written: {result[key]}")
+        if result.get("error"):
+            _print(f"[red]✗[/red] {result['error']}" if HAS_RICH else f"✗ {result['error']}")
+
+
+@target_app.command("seed")
+def target_seed(
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Seed the board with the first aspirational targets (Palantir-tier + frontier-lab FDE)."""
+    from beacon.targets import seed_targets
+
+    conn = get_connection()
+    result = seed_targets(conn)
+    conn.close()
+
+    if as_json:
+        _json_out(result)
+        return
+
+    for t in result["inserted"]:
+        _print(f"  + [{t['id']}] {t['title']}")
+    for label in result["skipped"]:
+        _print(f"  = {label} (already on the board)")
+    if result["dispatches_inserted"]:
+        _print(f"  + {result['dispatches_inserted']} FDE dispatch(es) logged")
+    if result["inserted"]:
+        _print("\nSet the baseline: [bold]beacon target fit --all[/bold]")
+
+
+@dispatch_app.command("add")
+def dispatch_add(
+    title: str = typer.Argument(..., help="Dispatch title (post, talk, podcast episode)"),
+    url: str = typer.Option(None, "--url", "-u", help="Source URL"),
+    source: str = typer.Option(None, "--source", help="blog, podcast, talk, linkedin, forum, ..."),
+    author: str = typer.Option(None, "--author", help="Who wrote/said it"),
+    author_role: str = typer.Option(None, "--author-role", help="e.g. 'FDE @ Palantir'"),
+    target: int = typer.Option(None, "--target", help="Link to a role target ID"),
+    attribute: list[str] = typer.Option([], "--attribute", "-a", help="Observed success attribute/skill (repeatable)"),
+    takeaways: str = typer.Option(None, "--takeaways", help="What this says about the real role"),
+    quote: str = typer.Option(None, "--quote", help="Notable line"),
+    date_published: str = typer.Option(None, "--date", help="Publication date (YYYY-MM-DD)"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Log a dispatch from a real FDE — field evidence of what the role actually demands."""
+    from beacon.targets import add_dispatch
+
+    conn = get_connection()
+    dispatch_id = add_dispatch(
+        conn,
+        title=title,
+        url=url,
+        source=source,
+        author=author,
+        author_role=author_role,
+        role_target_id=target,
+        attributes=attribute or None,
+        takeaways=takeaways,
+        quote=quote,
+        date_published=date_published,
+    )
+    conn.close()
+
+    if as_json:
+        _json_out({"id": dispatch_id, "title": title, "attributes": attribute})
+    else:
+        _stderr(f"Dispatch logged (id={dispatch_id}): {title}")
+        if attribute:
+            _stderr(f"  Attributes: {', '.join(attribute)}")
+
+
+@dispatch_app.command("list")
+def dispatch_list(
+    target: int = typer.Option(None, "--target", help="Filter by role target ID"),
+    limit: int = typer.Option(50, "--limit", "-n", help="Max results"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """List logged FDE dispatches."""
+    from beacon.targets import list_dispatches
+
+    conn = get_connection()
+    dispatches = list_dispatches(conn, role_target_id=target, limit=limit)
+    conn.close()
+
+    if as_json:
+        _json_out(dispatches)
+        return
+
+    if not dispatches:
+        _print("No dispatches logged. Capture one with [bold]beacon target dispatch add[/bold].")
+        return
+
+    for d in dispatches:
+        who = f" — {d['author']}" if d.get("author") else ""
+        role = f" ({d['author_role']})" if d.get("author_role") else ""
+        _print(f"  [{d['id']}] {d['title']}{who}{role}")
+        if d["attributes"]:
+            _print(f"      attributes: {', '.join(str(a) for a in d['attributes'])}")
 
 
 def main():

@@ -60,9 +60,13 @@ What changes is which tables are alive:
 2. **WS2 — STAR+Reflection story bank** (#30, reframed) — stories distilled
    *from wins* via `win promote --to-story`; Reflection is the promotion gate;
    stories map to aspirational targets. Next implementation session.
-3. **WS3 — Aspirational role track** (`beacon target ...`) — `role_targets`
-   with frozen JD snapshots + `role_fit_snapshots` time series; gaps analysis
-   scoped to targets; reuses `job add --fetch`, `job_fit.py`, `skill_gaps`.
+3. **WS3 — Aspirational role track** (`beacon target ...`) — **shipped
+   2026-06 (#43).** `role_targets` with frozen JD snapshots +
+   `role_fit_snapshots` time series; gaps analysis scoped to targets
+   (horizon-weighted, win-evidence-linked); `role_dispatches` capture field
+   reports from real FDEs so JD demands can be checked against reality;
+   `beacon target seed` lands the first Palantir-tier + frontier-lab targets.
+   Surfaced continuously via dashboard action items and the career review.
 4. **WS4 — Role-market radar** (`beacon career market`) — quarterly snapshot
    of the FDE/applied-AI role family (skills, seniority mix, comp signals,
    trends), cloning the `presence radar` two-input pattern. Absorbs #21.

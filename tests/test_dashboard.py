@@ -151,10 +151,13 @@ class TestGatherDashboardData:
 
 
 class TestActionItems:
-    def test_no_action_items_empty_db(self, db):
+    def test_empty_db_only_nudges_target_seed(self, db):
+        # An empty DB has one standing action: seed the aspirational role
+        # board (#43) — the career-OS track should stay top of mind.
         conn, _ = db
         data = gather_dashboard_data(conn)
-        assert data.action_items == []
+        assert len(data.action_items) == 1
+        assert "beacon target seed" in data.action_items[0]
 
     def test_stale_applications(self, db):
         conn, _ = db

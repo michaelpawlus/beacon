@@ -162,7 +162,33 @@ def _parse_json_list(value: str | None) -> list:
         return [value]
 
 
-def render_review_markdown(wins: list[dict], since_label: str, role: dict | None = None) -> str:
+def target_progress(conn: sqlite3.Connection, since: str | None = None) -> dict:
+    """The regular wins↔gaps check for the review: which wins in the window are
+    evidence against target-demanded gaps, and which gaps to prioritize next."""
+    from beacon.targets import (
+        SNAPSHOT_STALE_DAYS,
+        analyze_target_gaps,
+        latest_snapshot_age_days,
+        wins_closing_gaps,
+    )
+
+    analysis = analyze_target_gaps(conn)
+    age = latest_snapshot_age_days(conn)
+    return {
+        "targets_analyzed": analysis["targets_analyzed"],
+        "wins_closing_gaps": wins_closing_gaps(conn, since=resolve_since(since)),
+        "next_gaps": analysis["gaps"][:5],
+        "snapshot_age_days": age,
+        "snapshot_stale": age is None or age > SNAPSHOT_STALE_DAYS,
+    }
+
+
+def render_review_markdown(
+    wins: list[dict],
+    since_label: str,
+    role: dict | None = None,
+    targets: dict | None = None,
+) -> str:
     """Render the brag-document review as markdown."""
     today = date.today().isoformat()
     lines = [f"# Career Review — {today}", ""]
@@ -224,5 +250,33 @@ def render_review_markdown(wins: list[dict], since_label: str, role: dict | None
         for w in strong_untold:
             lines.append(f"- [{w['id']}] {w['title']}")
         lines.append("")
+
+    if targets and targets.get("targets_analyzed"):
+        lines.append("## Aspirational Targets — wins vs gaps")
+        lines.append("")
+        closing = targets.get("wins_closing_gaps") or []
+        if closing:
+            lines.append("Wins this window that are evidence against target gaps — get these")
+            lines.append("onto the resume and into skills:")
+            for w in closing:
+                lines.append(f"- [{w['id']}] {w['title']} → {', '.join(w['gap_skills'])}")
+        else:
+            lines.append("No wins this window touched a target-demanded gap. The day job is")
+            lines.append("drifting from the 2–4 year vector — pick work that closes a gap.")
+        lines.append("")
+        next_gaps = targets.get("next_gaps") or []
+        if next_gaps:
+            lines.append("Next gaps to prioritize (horizon-weighted):")
+            for g in next_gaps:
+                field = " *(field-validated)*" if g.get("field_observed") else ""
+                lines.append(
+                    f"- **{g['skill_name']}** — {g['demand_count']} targets, priority {g['priority']}{field}"
+                )
+            lines.append("")
+        if targets.get("snapshot_stale"):
+            age = targets.get("snapshot_age_days")
+            label = "never run" if age is None else f"{age}d old"
+            lines.append(f"Fit snapshot is {label} — run `beacon target fit --all` to keep the time series honest.")
+            lines.append("")
 
     return "\n".join(lines) + "\n"
