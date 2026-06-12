@@ -521,7 +521,11 @@ def sync_target_gaps(conn: sqlite3.Connection, gaps: list[dict]) -> dict:
             ]
             if job_entries:
                 # Job-driven row: keep the market signal (demand_count + job
-                # examples), layer target provenance on top, elevate priority.
+                # examples) and layer target provenance on top. Priority is
+                # recomputed from *current* signals — the job convention
+                # (priority = demand_count) vs today's target priority — so a
+                # past elevation decays when target demand shrinks (e.g. a 1y
+                # target slipping to 4y) instead of ratcheting forever.
                 conn.execute(
                     """UPDATE skill_gaps
                        SET example_jobs = ?, priority = ?, category = COALESCE(category, ?),
@@ -529,7 +533,7 @@ def sync_target_gaps(conn: sqlite3.Connection, gaps: list[dict]) -> dict:
                        WHERE id = ?""",
                     (
                         json.dumps(job_entries + target_entries),
-                        max(existing["priority"] or 0, gap["priority"]),
+                        max(existing["demand_count"] or 0, gap["priority"]),
                         gap["category"],
                         existing["id"],
                     ),

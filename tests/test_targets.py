@@ -452,6 +452,28 @@ class TestTargetGaps:
         assert row["demand_count"] == 7
         assert json.loads(row["example_jobs"]) == [{"id": 9, "title": "Data Eng", "company": "Acme"}]
 
+    def test_merged_priority_decays_when_target_horizon_slips(self, db):
+        # Codex review, PR #51: merged priority must track current signals —
+        # a 1y target slipping to 4y lowers the elevation instead of
+        # ratcheting on the old max.
+        conn, _ = db
+        from beacon.research.skill_gaps import upsert_skill_gaps
+
+        upsert_skill_gaps(conn, [{
+            "skill": "Kafka", "category": "tool", "demand_count": 2,
+            "example_jobs": [{"id": 9, "title": "Data Eng", "company": "Acme"}],
+        }])
+        tid = _add_basic_target(conn, horizon="1y", required_skills=["Kafka"])
+        sync_target_gaps(conn, analyze_target_gaps(conn)["gaps"])
+        assert conn.execute(
+            "SELECT priority FROM skill_gaps WHERE skill_name = 'Kafka'"
+        ).fetchone()["priority"] == 4  # max(job 2, 1y weight 4)
+        update_target(conn, tid, horizon="4y")
+        sync_target_gaps(conn, analyze_target_gaps(conn)["gaps"])
+        row = conn.execute("SELECT * FROM skill_gaps WHERE skill_name = 'Kafka'").fetchone()
+        assert row["priority"] == 2  # max(job 2, 4y weight 1) — elevation decayed
+        assert row["demand_count"] == 2
+
     def test_shed_resets_target_elevated_priority(self, db):
         # Codex review, PR #51: a 1-job gap merged with a 1y target gets
         # priority 4; dropping the target must restore the job-market
