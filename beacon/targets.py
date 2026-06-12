@@ -492,35 +492,60 @@ def sync_target_gaps(conn: sqlite3.Connection, gaps: list[dict]) -> dict:
     """Upsert target gaps into skill_gaps so `gaps list/export` (and the
     stack-quest/code-daily quest feed) are driven by aspirational demand.
 
-    Existing rows keep their status (open/learning/closed); demand_count,
-    priority, and example_jobs are refreshed from target demand. Synced rows
-    are provenance-tagged (`"target": true` on each example entry — an inner
-    addition, so the gaps-list envelope contract is untouched), and tagged
-    rows whose demand has vanished — skill acquired, or the demanding target
-    dropped — are retired (status closed, demand/priority zeroed). Rows owned
-    by the job-driven `gaps analyze` flow are never touched.
+    Existing rows keep their status (open/learning/closed). Synced rows are
+    provenance-tagged (`"target": true` on each example entry — an inner
+    addition, so the gaps-list envelope contract is untouched). Rows that
+    already carry job-market demand from `gaps analyze` are *merged*, not
+    overwritten: their demand_count and job examples survive, target entries
+    are layered in, and priority is raised to the target priority when
+    higher. Purely target-owned rows whose demand has vanished — skill
+    acquired, or the demanding target dropped — are retired (status closed,
+    demand/priority zeroed); mixed rows just shed their stale target entries.
     """
     inserted = 0
     updated = 0
     for gap in gaps:
-        example_json = json.dumps([{**t, "target": True} for t in gap["example_targets"]])
+        target_entries = [{**t, "target": True} for t in gap["example_targets"]]
         existing = conn.execute(
-            "SELECT id FROM skill_gaps WHERE skill_name = ?", (gap["skill_name"],)
+            "SELECT id, demand_count, priority, category, example_jobs FROM skill_gaps WHERE skill_name = ?",
+            (gap["skill_name"],),
         ).fetchone()
         if existing:
-            conn.execute(
-                """UPDATE skill_gaps
-                   SET demand_count = ?, category = ?, example_jobs = ?,
-                       priority = ?, updated_at = datetime('now')
-                   WHERE id = ?""",
-                (gap["demand_count"], gap["category"], example_json, gap["priority"], existing["id"]),
-            )
+            job_entries = [
+                e for e in _parse_json_list(existing["example_jobs"])
+                if not (isinstance(e, dict) and e.get("target"))
+            ]
+            if job_entries:
+                # Job-driven row: keep the market signal (demand_count + job
+                # examples), layer target provenance on top, elevate priority.
+                conn.execute(
+                    """UPDATE skill_gaps
+                       SET example_jobs = ?, priority = ?, category = COALESCE(category, ?),
+                           updated_at = datetime('now')
+                       WHERE id = ?""",
+                    (
+                        json.dumps(job_entries + target_entries),
+                        max(existing["priority"] or 0, gap["priority"]),
+                        gap["category"],
+                        existing["id"],
+                    ),
+                )
+            else:
+                conn.execute(
+                    """UPDATE skill_gaps
+                       SET demand_count = ?, category = ?, example_jobs = ?,
+                           priority = ?, updated_at = datetime('now')
+                       WHERE id = ?""",
+                    (gap["demand_count"], gap["category"], json.dumps(target_entries),
+                     gap["priority"], existing["id"]),
+                )
             updated += 1
         else:
             conn.execute(
                 """INSERT INTO skill_gaps (skill_name, category, demand_count, example_jobs, priority)
                    VALUES (?, ?, ?, ?, ?)""",
-                (gap["skill_name"], gap["category"], gap["demand_count"], example_json, gap["priority"]),
+                (gap["skill_name"], gap["category"], gap["demand_count"],
+                 json.dumps(target_entries), gap["priority"]),
             )
             inserted += 1
 
@@ -533,16 +558,24 @@ def sync_target_gaps(conn: sqlite3.Connection, gaps: list[dict]) -> dict:
         if row["skill_name"].lower() in current:
             continue
         examples = _parse_json_list(row["example_jobs"])
-        target_owned = bool(examples) and all(
-            isinstance(e, dict) and e.get("target") for e in examples
-        )
-        if target_owned:
+        tagged = [e for e in examples if isinstance(e, dict) and e.get("target")]
+        if not tagged:
+            continue
+        if len(tagged) == len(examples):
+            # Purely target-owned and no longer demanded — retire it.
             conn.execute(
                 "UPDATE skill_gaps SET status = 'closed', demand_count = 0, priority = 0, "
                 "updated_at = datetime('now') WHERE id = ?",
                 (row["id"],),
             )
             retired += 1
+        else:
+            # Mixed row: job demand persists — just drop the stale target entries.
+            untagged = [e for e in examples if not (isinstance(e, dict) and e.get("target"))]
+            conn.execute(
+                "UPDATE skill_gaps SET example_jobs = ?, updated_at = datetime('now') WHERE id = ?",
+                (json.dumps(untagged), row["id"]),
+            )
 
     conn.commit()
     return {"inserted": inserted, "updated": updated, "retired": retired}

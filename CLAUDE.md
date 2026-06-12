@@ -422,10 +422,13 @@ default `open`). With `--sync` (default) gaps are upserted into `skill_gaps`
 (existing statuses preserved), so `beacon gaps list/export` and the
 stack-quest/code-daily quest feed are driven by **aspirational demand**.
 Synced rows are provenance-tagged (`"target": true` on each `example_jobs`
-entry), and tagged rows whose demand has vanished (skill acquired, target
+entry). Rows that already carry job-market demand from `gaps analyze` are
+merged, not overwritten — job demand_count + examples survive, target
+entries layer in, priority is raised when the target priority is higher.
+Purely target-owned rows whose demand has vanished (skill acquired, target
 dropped) are auto-retired — closed with demand/priority zeroed — while
-job-driven rows from `gaps analyze` are never touched; the sync result
-reports `inserted`/`updated`/`retired`. The
+mixed rows just shed their stale target entries; the sync result reports
+`inserted`/`updated`/`retired`. The
 payload also includes `jd_vs_field`: `field_only` lists attributes real FDEs
 report as success-critical that no JD demands — the JD-vs-reality disconnect
 the dispatch log exists to expose.

@@ -356,6 +356,72 @@ class TestTargetGaps:
         row = conn.execute("SELECT status FROM skill_gaps WHERE skill_name = 'Kafka'").fetchone()
         assert row["status"] == "closed"
 
+    def test_sync_merges_job_driven_row_without_clobbering(self, db):
+        # Codex review, PR #51: a market gap (e.g. 20 jobs demand Kafka) must
+        # keep its job demand + examples when a target also demands the skill.
+        conn, _ = db
+        from beacon.research.skill_gaps import upsert_skill_gaps
+
+        upsert_skill_gaps(conn, [{
+            "skill": "Kubernetes", "category": "tool", "demand_count": 20,
+            "example_jobs": [{"id": 9, "title": "Platform Eng", "company": "Acme"}],
+        }])
+        _add_basic_target(conn, horizon="1y")
+        sync_target_gaps(conn, analyze_target_gaps(conn)["gaps"])
+        row = conn.execute("SELECT * FROM skill_gaps WHERE skill_name = 'Kubernetes'").fetchone()
+        assert row["demand_count"] == 20  # market signal preserved
+        assert row["priority"] == 20  # max(job priority 20, target horizon weight 4)
+        examples = json.loads(row["example_jobs"])
+        assert {"id": 9, "title": "Platform Eng", "company": "Acme"} in examples
+        assert any(e.get("target") for e in examples)
+
+    def test_sync_elevates_priority_on_merged_row(self, db):
+        conn, _ = db
+        from beacon.research.skill_gaps import upsert_skill_gaps
+
+        upsert_skill_gaps(conn, [{
+            "skill": "Kubernetes", "category": "tool", "demand_count": 1,
+            "example_jobs": [{"id": 9, "title": "Platform Eng", "company": "Acme"}],
+        }])
+        _add_basic_target(conn, horizon="1y")  # horizon weight 4
+        sync_target_gaps(conn, analyze_target_gaps(conn)["gaps"])
+        row = conn.execute("SELECT priority FROM skill_gaps WHERE skill_name = 'Kubernetes'").fetchone()
+        assert row["priority"] == 4
+
+    def test_sync_idempotent_on_merged_row(self, db):
+        conn, _ = db
+        from beacon.research.skill_gaps import upsert_skill_gaps
+
+        upsert_skill_gaps(conn, [{
+            "skill": "Kubernetes", "category": "tool", "demand_count": 5,
+            "example_jobs": [{"id": 9, "title": "Platform Eng", "company": "Acme"}],
+        }])
+        _add_basic_target(conn)
+        sync_target_gaps(conn, analyze_target_gaps(conn)["gaps"])
+        sync_target_gaps(conn, analyze_target_gaps(conn)["gaps"])
+        row = conn.execute("SELECT example_jobs FROM skill_gaps WHERE skill_name = 'Kubernetes'").fetchone()
+        examples = json.loads(row["example_jobs"])
+        assert len([e for e in examples if e.get("target")]) == 1  # no duplicate target entries
+        assert len([e for e in examples if not e.get("target")]) == 1
+
+    def test_mixed_row_sheds_target_entries_when_demand_vanishes(self, db):
+        conn, _ = db
+        from beacon.research.skill_gaps import upsert_skill_gaps
+
+        upsert_skill_gaps(conn, [{
+            "skill": "Kafka", "category": "tool", "demand_count": 7,
+            "example_jobs": [{"id": 9, "title": "Data Eng", "company": "Acme"}],
+        }])
+        tid = _add_basic_target(conn, required_skills=["Kafka"])
+        sync_target_gaps(conn, analyze_target_gaps(conn)["gaps"])
+        update_target(conn, tid, status="dropped")
+        result = sync_target_gaps(conn, analyze_target_gaps(conn)["gaps"])
+        assert result["retired"] == 0  # job demand persists — not retired
+        row = conn.execute("SELECT * FROM skill_gaps WHERE skill_name = 'Kafka'").fetchone()
+        assert row["status"] == "open"
+        assert row["demand_count"] == 7
+        assert json.loads(row["example_jobs"]) == [{"id": 9, "title": "Data Eng", "company": "Acme"}]
+
     def test_sync_never_touches_job_driven_rows(self, db):
         # Rows owned by `gaps analyze` (no target provenance tag) survive a
         # target sync even when no target demands the skill.
