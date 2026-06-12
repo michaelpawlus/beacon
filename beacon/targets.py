@@ -585,10 +585,14 @@ def sync_target_gaps(conn: sqlite3.Connection, gaps: list[dict]) -> dict:
             )
             retired += 1
         else:
-            # Mixed row: job demand persists — just drop the stale target entries.
+            # Mixed row: job demand persists — drop the stale target entries
+            # and let priority fall back to the job-market convention
+            # (`gaps analyze` sets priority = demand_count), undoing any
+            # elevation the departed target applied.
             untagged = [e for e in examples if not (isinstance(e, dict) and e.get("target"))]
             conn.execute(
-                "UPDATE skill_gaps SET example_jobs = ?, updated_at = datetime('now') WHERE id = ?",
+                "UPDATE skill_gaps SET example_jobs = ?, priority = demand_count, "
+                "updated_at = datetime('now') WHERE id = ?",
                 (json.dumps(untagged), row["id"]),
             )
 

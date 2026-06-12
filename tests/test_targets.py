@@ -452,6 +452,28 @@ class TestTargetGaps:
         assert row["demand_count"] == 7
         assert json.loads(row["example_jobs"]) == [{"id": 9, "title": "Data Eng", "company": "Acme"}]
 
+    def test_shed_resets_target_elevated_priority(self, db):
+        # Codex review, PR #51: a 1-job gap merged with a 1y target gets
+        # priority 4; dropping the target must restore the job-market
+        # priority (= demand_count), not leave the elevation behind.
+        conn, _ = db
+        from beacon.research.skill_gaps import upsert_skill_gaps
+
+        upsert_skill_gaps(conn, [{
+            "skill": "Kafka", "category": "tool", "demand_count": 1,
+            "example_jobs": [{"id": 9, "title": "Data Eng", "company": "Acme"}],
+        }])
+        tid = _add_basic_target(conn, horizon="1y", required_skills=["Kafka"])
+        sync_target_gaps(conn, analyze_target_gaps(conn)["gaps"])
+        assert conn.execute(
+            "SELECT priority FROM skill_gaps WHERE skill_name = 'Kafka'"
+        ).fetchone()["priority"] == 4
+        update_target(conn, tid, status="dropped")
+        sync_target_gaps(conn, analyze_target_gaps(conn)["gaps"])
+        row = conn.execute("SELECT * FROM skill_gaps WHERE skill_name = 'Kafka'").fetchone()
+        assert row["priority"] == 1
+        assert row["demand_count"] == 1
+
     def test_sync_never_touches_job_driven_rows(self, db):
         # Rows owned by `gaps analyze` (no target provenance tag) survive a
         # target sync even when no target demands the skill.
