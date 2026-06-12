@@ -33,6 +33,47 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
     _add_column_if_missing(conn, "job_listings", "archetype", "TEXT")
     _add_column_if_missing(conn, "job_listings", "archetype_confidence", "REAL")
     _add_column_if_missing(conn, "discovery_candidates", "discovery_score", "REAL DEFAULT 0")
+    conn.executescript(
+        """CREATE TABLE IF NOT EXISTS role_targets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            company_id INTEGER REFERENCES companies(id) ON DELETE SET NULL,
+            source_job_id INTEGER REFERENCES job_listings(id) ON DELETE SET NULL,
+            source_url TEXT,
+            archetype TEXT,
+            horizon TEXT CHECK(horizon IN ('1y','2y','3y','4y')),
+            target_comp_min INTEGER,
+            target_comp_max INTEGER,
+            description_snapshot TEXT,
+            required_skills TEXT,
+            why TEXT,
+            status TEXT DEFAULT 'active' CHECK(status IN ('active','achieved','dropped')),
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS role_fit_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            role_target_id INTEGER NOT NULL REFERENCES role_targets(id) ON DELETE CASCADE,
+            fit_score REAL,
+            gaps_json TEXT,
+            evidence_json TEXT,
+            computed_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS role_dispatches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            url TEXT,
+            source TEXT,
+            author TEXT,
+            author_role TEXT,
+            role_target_id INTEGER REFERENCES role_targets(id) ON DELETE SET NULL,
+            attributes TEXT,
+            takeaways TEXT,
+            quote TEXT,
+            date_published TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );"""
+    )
     conn.execute(
         """CREATE TABLE IF NOT EXISTS job_requirements (
             job_id INTEGER PRIMARY KEY REFERENCES job_listings(id) ON DELETE CASCADE,
@@ -56,6 +97,7 @@ def reset_db(db_path: Path | str | None = None) -> None:
     """Drop all tables and reinitialize. Use with caution."""
     conn = get_connection(db_path)
     tables = [
+        "role_dispatches", "role_fit_snapshots", "role_targets",
         "interview_stories", "wins",
         "skill_gaps",
         "discovery_candidates",

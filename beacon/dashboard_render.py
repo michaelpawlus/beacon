@@ -100,6 +100,26 @@ def _render_rich(console, data: DashboardData, compact: bool) -> None:
             title="Content Pipeline",
         ))
 
+    # Aspirational role targets
+    if data.targets:
+        tt = Table(title="Role Targets", show_lines=False)
+        tt.add_column("Horizon", width=7)
+        tt.add_column("Title", style="bold", width=34)
+        tt.add_column("Company", width=12)
+        tt.add_column("Fit", justify="right", width=5)
+        tt.add_column("Last", width=10)
+        for t in data.targets[:6]:
+            fit = t.get("latest_fit")
+            fit_color = "green" if (fit or 0) >= 7 else "yellow" if (fit or 0) >= 4 else "dim"
+            tt.add_row(
+                t.get("horizon") or "—",
+                t["title"][:34],
+                (t.get("company_name") or "—")[:12],
+                f"[{fit_color}]{fit:.1f}[/{fit_color}]" if fit is not None else "—",
+                (t.get("last_computed_at") or "never")[:10],
+            )
+        console.print(tt)
+
     # Action items
     if data.action_items:
         items_text = "\n".join(f"  {i+1}. {item}" for i, item in enumerate(data.action_items))
@@ -161,6 +181,12 @@ def _render_plain(data: DashboardData, compact: bool) -> None:
         for key, info in data.presence.items():
             label = key.replace("_", " ").title()
             print(f"  {label}: {info['value']} {_STATUS_ICONS[info['status']]}")
+
+    if data.targets:
+        print("\nRole Targets:")
+        for t in data.targets[:6]:
+            fit = f"{t['latest_fit']:.1f}" if t.get("latest_fit") is not None else "—"
+            print(f"  [{t.get('horizon') or '—'}] {t['title']} @ {t.get('company_name') or '—'} (fit {fit})")
 
     if data.action_items:
         print("\nAction Items:")

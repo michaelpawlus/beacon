@@ -383,7 +383,63 @@ aspirational-role fit.
 | `beacon career win promote <id>` | Distill a win into a STAR+Reflection story — prefills S/T/R from the win, prompts for Reflection | `--reflection TEXT` `--title TEXT` `--json` |
 | `beacon career review` | Brag-document review: win mix, evidence, untold stories | `--since DATE\|Nd` (default 90d) `--vault` `--output PATH` `--json` |
 
-**Win categories** encode the value-overhang thesis: `delivery`, `adoption`, `enablement`, `relationship`, `revenue`, `learning`, `visibility`, `process`. `adoption`/`enablement`/`relationship` count as *diffusion* work; the review reports the diffusion-vs-delivery mix. `--untold` filters to wins not yet promoted to an interview story (`story_id IS NULL`); promote with `beacon career win promote <id>`. `beacon career review --vault` writes to `$OBSIDIAN_VAULT_PATH/Job Search/Career Reviews/` via `oj capture` with `type: career-review` frontmatter.
+**Win categories** encode the value-overhang thesis: `delivery`, `adoption`, `enablement`, `relationship`, `revenue`, `learning`, `visibility`, `process`. `adoption`/`enablement`/`relationship` count as *diffusion* work; the review reports the diffusion-vs-delivery mix. `--untold` filters to wins not yet promoted to an interview story (`story_id IS NULL`); promote with `beacon career win promote <id>`. `beacon career review --vault` writes to `$OBSIDIAN_VAULT_PATH/Job Search/Career Reviews/` via `oj capture` with `type: career-review` frontmatter. When active `role_targets` exist, the review also renders an **Aspirational Targets — wins vs gaps** section: wins in the window that are evidence against target-demanded gaps, the next horizon-weighted gaps to prioritize, and a stale-snapshot nudge.
+
+### Target Sub-commands (`beacon target ...`)
+
+Aspirational role track (#43, WS3 in `docs/career-strategy.md`). `role_targets`
+are named roles the user is *not yet qualified for* — the JD is frozen at
+capture (`description_snapshot` + canonical `required_skills`) so the target
+outlives the posting. Every `beacon target fit` run writes a
+`role_fit_snapshots` row, making fit a time series ("fit 5.2 in June 2026 →
+7.4 by mid-2027" is the core deliverable).
+
+| Command | Description | Key Flags |
+|---------|-------------|-----------|
+| `beacon target seed` | Seed the board with the first aspirational targets: Palantir-tier FDE (2y), staff enterprise FDE/Applied AI lead (3y), Anthropic + OpenAI FDE (4y), plus a starter FDE field dispatch. Idempotent; creates minimal company rows when missing | `--json` |
+| `beacon target add [TITLE]` | Capture a target — from a known listing (`--from-job`), a live URL (`--url --fetch`), or manually. Required skills are extracted from the JD unless `--skill` is given | `--from-job N` `--url TEXT --fetch` `--company TEXT` `--archetype KEY` `--horizon 1y\|2y\|3y\|4y` `--comp-min N` `--comp-max N` `--skill TEXT` (repeatable) `--description TEXT` `--why TEXT` `--json` |
+| `beacon target list` | Targets with latest fit + snapshot freshness (warns when the quarterly snapshot is >90d old) | `--horizon TEXT` `--status active\|achieved\|dropped\|all` `--json` |
+| `beacon target show <id>` | Full target: frozen JD, required skills, latest fit | `--json` |
+| `beacon target update <id>` | Update status / horizon / why / archetype | `--status TEXT` `--horizon TEXT` `--why TEXT` `--archetype KEY` `--json` |
+| `beacon target fit [ID]` | Compute fit against the frozen JD and **write a snapshot row**. Reports delta + gaps closed since the last run | `--all` `--json` |
+| `beacon target gaps` | Skill gaps scoped to active targets, horizon-weighted, annotated with win evidence and dispatch field-validation; versioned envelope (see below) | `--sync/--no-sync` (default sync) `--json` |
+| `beacon target trajectory <id>` | Fit-over-time note: what moved the number, current gaps, win-backed (resume-ready) skills. `--vault` writes to `$OBSIDIAN_VAULT_PATH/Job Search/Targets/` via `oj capture` | `--vault` `--output PATH` `--json` |
+| `beacon target dispatch add <title>` | Log a dispatch from a real FDE in the wild (blog post, talk, podcast) with the success attributes it reveals | `--url TEXT` `--source TEXT` `--author TEXT` `--author-role TEXT` `--target N` `--attribute TEXT` (repeatable) `--takeaways TEXT` `--quote TEXT` `--date DATE` `--json` |
+| `beacon target dispatch list` | List dispatches | `--target N` `--limit N` `--json` |
+
+**Fit scoring** (deterministic, no LLM — `beacon/targets.py:compute_target_fit`):
+`skill_overlap` ×0.55 (profile skills/work-tech/project-tech vs frozen required
+skills) + `evidence_depth` ×0.25 (required skills backed by logged wins) +
+`story_readiness` ×0.10 (polished STAR+R stories for the target archetype) +
+`gap_momentum` ×0.10 (missing skills already `learning`/`closed` in skill_gaps).
+
+**`target gaps` envelope** (`schema_version: 1`): gap objects carry
+`skill_name`, `category`, `demand_count` (# active targets demanding it),
+`priority` (sum of horizon weights: 1y=4, 2y=3, 3y=2, 4y=1), `example_targets`
+(`[{id,title,company}]`, max 3), `field_observed` (# dispatches observing the
+skill), `win_evidence_count` + `example_wins`, and `status` (from skill_gaps,
+default `open`). With `--sync` (default) gaps are upserted into `skill_gaps`
+(existing statuses preserved), so `beacon gaps list/export` and the
+stack-quest/code-daily quest feed are driven by **aspirational demand**.
+Synced rows are provenance-tagged (`"target": true` on each `example_jobs`
+entry). Rows that already carry job-market demand from `gaps analyze` are
+merged, not overwritten — job demand_count + examples survive, target
+entries layer in, priority is raised when the target priority is higher.
+Purely target-owned rows whose demand has vanished (skill acquired, target
+dropped) are auto-retired — closed with demand/priority zeroed — and
+reopened if target demand returns (a manual `closed` set via `gaps update`
+is respected); mixed rows just shed their stale target entries. The sync
+result reports `inserted`/`updated`/`retired`/`reopened`. The
+payload also includes `jd_vs_field`: `field_only` lists attributes real FDEs
+report as success-critical that no JD demands — the JD-vs-reality disconnect
+the dispatch log exists to expose.
+
+**Cadence / surfacing:** `beacon dashboard` renders a Role Targets panel and
+emits action items for: no targets yet (seed nudge), missing/stale fit
+baseline (quarterly `target fit --all` nudge at >90 days), the next
+horizon-weighted gap to close, and win evidence accumulating against open
+gaps (the add-to-skills/resume cue). `beacon career review` runs the same
+wins↔gaps check on its 90-day window.
 
 ## Agent Usage Examples
 
@@ -451,6 +507,20 @@ oj query --tags job-search,cover-letter --json --limit 1
 # Log a video you watched with reaction and sharing fields
 beacon media add "Andrej Karpathy - Intro to LLMs" --type video --creator "Andrej Karpathy" --platform YouTube --rating 5 --tag ai --tag llm --reaction "Great mental model for how LLMs work" --shareable --share-note "Best intro to LLMs for non-technical folks" --why "Gives the team a shared mental model for how LLMs actually work" --quote "The LLM is dreaming the next token" --category "AI Adoption" --json
 
+# Seed the aspirational role board, set the fit baseline, see what to learn next
+beacon target seed --json
+beacon target fit --all --json
+beacon target gaps --json | jq '.gaps[0:5]'
+
+# Quarterly: snapshot fit + write the trajectory note to the vault
+beacon target fit --all --json && beacon target trajectory 1 --vault
+
+# Capture a live JD as a target before the posting dies
+beacon target add --url "https://jobs.example.com/fde" --fetch --horizon 2y --comp-min 200000 --comp-max 240000
+
+# Log a field report from a real FDE (the JD-vs-reality track)
+beacon target dispatch add "What FDE work is actually like" --url "https://example.com/post" --author-role "FDE @ Palantir" --attribute "Customer Obsession" --attribute "Data Integration" --json
+
 # Get team-shareable media list for AI adoption
 beacon media team-list --min-rating 4 --json
 
@@ -489,7 +559,7 @@ Read commands support composable filters (AND logic):
 - SQLite at `data/beacon.db`
 - Schema in `beacon/db/schema.sql`
 - `job_listings` carries `archetype` + `archetype_confidence` (role archetype classification — see `beacon job archetype`)
-- Key tables: `companies`, `ai_signals`, `leadership_signals`, `tools_adopted`, `score_breakdown`, `job_listings`, `applications`, `application_outcomes`, `work_experiences`, `projects`, `skills`, `education`, `publications_talks`, `content_drafts`, `content_calendar`, `media_log`, `network_events`, `network_contacts`, `network_contact_events`, `presentations`, `speaker_profile`, `resume_variants`, `automation_log`, `sessions`, `discovery_candidates`, `wins`, `interview_stories`
+- Key tables: `companies`, `ai_signals`, `leadership_signals`, `tools_adopted`, `score_breakdown`, `job_listings`, `applications`, `application_outcomes`, `work_experiences`, `projects`, `skills`, `education`, `publications_talks`, `content_drafts`, `content_calendar`, `media_log`, `network_events`, `network_contacts`, `network_contact_events`, `presentations`, `speaker_profile`, `resume_variants`, `automation_log`, `sessions`, `discovery_candidates`, `wins`, `interview_stories`, `role_targets`, `role_fit_snapshots`, `role_dispatches`
 - `beacon init` must be run before first use (creates schema + seeds 38 companies)
 
 ## Environment Variables

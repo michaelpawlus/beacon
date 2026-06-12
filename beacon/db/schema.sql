@@ -548,6 +548,65 @@ CREATE TABLE IF NOT EXISTS interview_stories (
 
 CREATE INDEX IF NOT EXISTS idx_stories_status ON interview_stories(status);
 
+-- Career OS: aspirational role targets (#43, WS3). Named roles the user is
+-- *not yet qualified for*, with the JD frozen at capture time so the demand
+-- side survives the posting. Fit is measured as a time series (see
+-- role_fit_snapshots) so skill investment over 2–4 years is deliberate.
+CREATE TABLE IF NOT EXISTS role_targets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    company_id INTEGER REFERENCES companies(id) ON DELETE SET NULL,   -- optional exemplar employer
+    source_job_id INTEGER REFERENCES job_listings(id) ON DELETE SET NULL,
+    source_url TEXT,
+    archetype TEXT,
+    horizon TEXT CHECK(horizon IN ('1y','2y','3y','4y')),
+    target_comp_min INTEGER,
+    target_comp_max INTEGER,
+    description_snapshot TEXT,        -- JD frozen at capture (postings die; targets don't)
+    required_skills TEXT,             -- JSON array of canonical skill names
+    why TEXT,
+    status TEXT DEFAULT 'active' CHECK(status IN ('active','achieved','dropped')),
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_role_targets_status ON role_targets(status);
+CREATE INDEX IF NOT EXISTS idx_role_targets_horizon ON role_targets(horizon);
+
+-- Career OS: fit-over-time snapshots — one row per `beacon target fit` run.
+-- "fit 5.2 in June 2026 → 7.4 by mid-2027" is the core deliverable.
+CREATE TABLE IF NOT EXISTS role_fit_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    role_target_id INTEGER NOT NULL REFERENCES role_targets(id) ON DELETE CASCADE,
+    fit_score REAL,
+    gaps_json TEXT,           -- missing skills at compute time
+    evidence_json TEXT,       -- matched skills + wins/stories backing them
+    computed_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_fit_snapshots_target ON role_fit_snapshots(role_target_id, computed_at DESC);
+
+-- Career OS: dispatches from real FDEs in the wild — blog posts, talks,
+-- podcasts by people doing the target roles. Captures the attributes that
+-- actually make them successful, so target gap analysis can show where the
+-- JD-demanded skill list and field reality diverge.
+CREATE TABLE IF NOT EXISTS role_dispatches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    url TEXT,
+    source TEXT,              -- blog, podcast, talk, linkedin, forum, ...
+    author TEXT,
+    author_role TEXT,         -- e.g. "FDE @ Palantir"
+    role_target_id INTEGER REFERENCES role_targets(id) ON DELETE SET NULL,
+    attributes TEXT,          -- JSON array of observed success attributes/skills
+    takeaways TEXT,
+    quote TEXT,
+    date_published TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_dispatches_target ON role_dispatches(role_target_id);
+
 -- Cached structured requirements for a job listing — populated on first
 -- `beacon match-jobs` run per listing, refreshed when the listing's
 -- date_last_seen advances past extracted_at.
