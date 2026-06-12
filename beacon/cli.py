@@ -5988,15 +5988,20 @@ def target_list(
     as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """List role targets with latest fit and snapshot freshness."""
-    from beacon.targets import SNAPSHOT_STALE_DAYS, latest_snapshot_age_days, list_targets
+    from beacon.targets import latest_snapshot_age_days, list_targets, targets_needing_fit
 
     conn = get_connection()
     targets = list_targets(conn, horizon=horizon, status=None if status == "all" else status)
     age = latest_snapshot_age_days(conn)
+    needing = targets_needing_fit(conn)
     conn.close()
 
     if as_json:
-        _json_out({"targets": targets, "latest_snapshot_age_days": age})
+        _json_out({
+            "targets": targets,
+            "latest_snapshot_age_days": age,
+            "targets_needing_fit": [t["id"] for t in needing],
+        })
         return
 
     if not targets:
@@ -6026,10 +6031,14 @@ def target_list(
             fit = f"{t['latest_fit']:.1f}" if t.get("latest_fit") is not None else "—"
             print(f"{t['id']}: [{t.get('horizon') or '—'}] {t['title']} @ {t.get('company_name') or '—'} (fit {fit})")
 
-    if age is None:
-        _print("\nNo fit snapshots yet — run [bold]beacon target fit --all[/bold] to set the baseline.")
-    elif age > SNAPSHOT_STALE_DAYS:
-        _print(f"\nLast fit snapshot is {age} days old — quarterly check due: [bold]beacon target fit --all[/bold]")
+    if needing:
+        never = [t for t in needing if t["snapshot_age_days"] is None]
+        if never:
+            names = ", ".join(t["title"] for t in never[:3])
+            _print(f"\n{len(never)} target(s) have no fit baseline ({names}) — run [bold]beacon target fit --all[/bold]")
+        else:
+            oldest = max(t["snapshot_age_days"] for t in needing)
+            _print(f"\nQuarterly fit check due (oldest snapshot {oldest}d old) — [bold]beacon target fit --all[/bold]")
 
 
 @target_app.command("show")

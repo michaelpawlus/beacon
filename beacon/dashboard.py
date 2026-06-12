@@ -173,7 +173,7 @@ def _get_targets(conn: sqlite3.Connection) -> list[dict]:
 
 def _target_action_items(conn: sqlite3.Connection) -> list[str]:
     """Keep the aspirational track top of mind: staleness + next gap to close."""
-    from beacon.targets import SNAPSHOT_STALE_DAYS, analyze_target_gaps, latest_snapshot_age_days, list_targets
+    from beacon.targets import analyze_target_gaps, list_targets, targets_needing_fit
 
     items = []
     targets = list_targets(conn, status="active")
@@ -181,11 +181,15 @@ def _target_action_items(conn: sqlite3.Connection) -> list[str]:
         items.append("No aspirational role targets tracked — seed the board with `beacon target seed`")
         return items
 
-    age = latest_snapshot_age_days(conn)
-    if age is None:
-        items.append("Role targets have no fit baseline — run `beacon target fit --all`")
-    elif age > SNAPSHOT_STALE_DAYS:
-        items.append(f"Quarterly target fit snapshot due (last run {age}d ago) — `beacon target fit --all`")
+    needing = targets_needing_fit(conn)
+    never = [t for t in needing if t["snapshot_age_days"] is None]
+    stale = [t for t in needing if t["snapshot_age_days"] is not None]
+    if never:
+        names = ", ".join(t["title"] for t in never[:3])
+        items.append(f"{len(never)} role target(s) have no fit baseline ({names}) — run `beacon target fit --all`")
+    elif stale:
+        oldest = max(t["snapshot_age_days"] for t in stale)
+        items.append(f"Quarterly target fit snapshot due (oldest {oldest}d ago) — `beacon target fit --all`")
 
     analysis = analyze_target_gaps(conn)
     open_gaps = [g for g in analysis["gaps"]]

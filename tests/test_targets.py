@@ -31,6 +31,7 @@ from beacon.targets import (
     seed_targets,
     snapshot_fit,
     sync_target_gaps,
+    targets_needing_fit,
     update_target,
     wins_closing_gaps,
 )
@@ -227,6 +228,23 @@ class TestSnapshots:
         tid = _add_basic_target(conn)
         snapshot_fit(conn, get_target(conn, tid))
         assert latest_snapshot_age_days(conn) == 0
+
+    def test_needing_fit_checks_per_target(self, db):
+        # A fresh snapshot on one target must not mask a newly added target
+        # that has never been baselined (Codex review, PR #51).
+        conn, _ = db
+        baselined = _add_basic_target(conn, title="Baselined")
+        snapshot_fit(conn, get_target(conn, baselined))
+        _add_basic_target(conn, title="New target")
+        needing = targets_needing_fit(conn)
+        assert [t["title"] for t in needing] == ["New target"]
+        assert needing[0]["snapshot_age_days"] is None
+
+    def test_needing_fit_ignores_inactive(self, db):
+        conn, _ = db
+        tid = _add_basic_target(conn, title="Dropped")
+        update_target(conn, tid, status="dropped")
+        assert targets_needing_fit(conn) == []
 
 
 # ── target gaps ─────────────────────────────────────────────────────
@@ -593,6 +611,18 @@ class TestSurfacing:
         assert any("beacon target fit --all" in item for item in data.action_items)
         assert any("Next target gap" in item for item in data.action_items)
 
+    def test_dashboard_nudges_unbaselined_target_despite_fresh_snapshot(self, db):
+        # Per-target freshness: one fresh snapshot must not suppress the
+        # baseline nudge for a target added afterwards (Codex review, PR #51).
+        conn, _ = db
+        from beacon.dashboard import gather_dashboard_data
+
+        baselined = _add_basic_target(conn, title="Baselined")
+        snapshot_fit(conn, get_target(conn, baselined))
+        _add_basic_target(conn, title="New target")
+        data = gather_dashboard_data(conn)
+        assert any("no fit baseline" in item and "New target" in item for item in data.action_items)
+
     def test_dashboard_lists_targets(self, db):
         conn, _ = db
         from beacon.dashboard import gather_dashboard_data
@@ -613,6 +643,20 @@ class TestSurfacing:
         assert "Shipped LLM evals" in md
         assert "Next gaps to prioritize" in md
         assert "beacon target fit --all" in md  # no snapshot yet → stale nudge
+
+    def test_review_renders_target_section_with_zero_wins(self, db):
+        # A zero-win window is exactly when the target nudges matter most —
+        # the no-wins branch must not short-circuit them (Codex review, PR #51).
+        conn, _ = db
+        from beacon.career import render_review_markdown, target_progress
+
+        _add_basic_target(conn)
+        progress = target_progress(conn, since="90d")
+        md = render_review_markdown([], "window", targets=progress)
+        assert "No wins logged" in md
+        assert "## Aspirational Targets — wins vs gaps" in md
+        assert "Next gaps to prioritize" in md
+        assert "beacon target fit --all" in md
 
     def test_review_skips_section_without_targets(self, db):
         conn, _ = db

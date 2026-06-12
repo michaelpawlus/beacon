@@ -380,6 +380,22 @@ def latest_snapshot_age_days(conn: sqlite3.Connection) -> int | None:
     return (datetime.now() - latest).days
 
 
+def targets_needing_fit(conn: sqlite3.Connection) -> list[dict]:
+    """Active targets with no fit baseline or a snapshot older than the
+    quarterly cadence. Checked per target — a fresh snapshot on one target
+    must not mask a newly added target that has never been baselined."""
+    needing = []
+    for t in list_targets(conn, status="active"):
+        last = t.get("last_computed_at")
+        if last is None:
+            needing.append({**t, "snapshot_age_days": None})
+            continue
+        age = (datetime.now() - datetime.fromisoformat(last)).days
+        if age > SNAPSHOT_STALE_DAYS:
+            needing.append({**t, "snapshot_age_days": age})
+    return needing
+
+
 # ---------------------------------------------------------------------------
 # Target-scoped gap analysis
 # ---------------------------------------------------------------------------

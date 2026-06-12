@@ -165,21 +165,19 @@ def _parse_json_list(value: str | None) -> list:
 def target_progress(conn: sqlite3.Connection, since: str | None = None) -> dict:
     """The regular wins↔gaps check for the review: which wins in the window are
     evidence against target-demanded gaps, and which gaps to prioritize next."""
-    from beacon.targets import (
-        SNAPSHOT_STALE_DAYS,
-        analyze_target_gaps,
-        latest_snapshot_age_days,
-        wins_closing_gaps,
-    )
+    from beacon.targets import analyze_target_gaps, targets_needing_fit, wins_closing_gaps
 
     analysis = analyze_target_gaps(conn)
-    age = latest_snapshot_age_days(conn)
+    needing = targets_needing_fit(conn)
     return {
         "targets_analyzed": analysis["targets_analyzed"],
         "wins_closing_gaps": wins_closing_gaps(conn, since=resolve_since(since)),
         "next_gaps": analysis["gaps"][:5],
-        "snapshot_age_days": age,
-        "snapshot_stale": age is None or age > SNAPSHOT_STALE_DAYS,
+        "targets_needing_fit": [
+            {"id": t["id"], "title": t["title"], "snapshot_age_days": t["snapshot_age_days"]}
+            for t in needing
+        ],
+        "snapshot_stale": bool(needing),
     }
 
 
@@ -199,57 +197,59 @@ def render_review_markdown(
     lines.append("")
 
     if not wins:
+        # No early return: a zero-win window is exactly when the aspirational
+        # target section below must still render its nudges.
         lines.append("No wins logged in this window. If the work happened, the evidence")
         lines.append("didn't — log it with `beacon career win add` before it fades.")
-        return "\n".join(lines) + "\n"
-
-    mix = category_mix(wins)
-    lines.append("## Win Mix")
-    lines.append("")
-    for cat, count in sorted(mix["by_category"].items(), key=lambda kv: -kv[1]):
-        lines.append(f"- {cat}: {count}")
-    lines.append("")
-    lines.append(
-        f"Diffusion (adoption/enablement/relationship) vs delivery: "
-        f"**{mix['diffusion']} vs {mix['delivery']}** — diffusion work is where the "
-        f"value overhang closes; keep this ratio deliberate."
-    )
-    lines.append("")
-
-    lines.append("## Wins")
-    lines.append("")
-    for w in wins:
-        cat = f" `{w['category']}`" if w.get("category") else ""
-        lines.append(f"### {w['title']}{cat}")
         lines.append("")
-        lines.append(f"*{w.get('win_date', '')}*")
-        if w.get("description"):
-            lines.append("")
-            lines.append(w["description"])
-        if w.get("impact"):
-            lines.append("")
-            lines.append(f"**Impact:** {w['impact']}")
-        metrics = _parse_json_list(w.get("metrics"))
-        if metrics:
-            lines.append("")
-            lines.append("**Metrics:**")
-            for m in metrics:
-                lines.append(f"- {m}")
-        stakeholders = _parse_json_list(w.get("stakeholders"))
-        if stakeholders:
-            lines.append("")
-            lines.append(f"**Stakeholders:** {', '.join(str(s) for s in stakeholders)}")
+    else:
+        mix = category_mix(wins)
+        lines.append("## Win Mix")
+        lines.append("")
+        for cat, count in sorted(mix["by_category"].items(), key=lambda kv: -kv[1]):
+            lines.append(f"- {cat}: {count}")
+        lines.append("")
+        lines.append(
+            f"Diffusion (adoption/enablement/relationship) vs delivery: "
+            f"**{mix['diffusion']} vs {mix['delivery']}** — diffusion work is where the "
+            f"value overhang closes; keep this ratio deliberate."
+        )
         lines.append("")
 
-    untold = [w for w in wins if not w.get("story_id")]
-    strong_untold = [w for w in untold if _parse_json_list(w.get("metrics"))]
-    if strong_untold:
-        lines.append("## Untold Stories")
+        lines.append("## Wins")
         lines.append("")
-        lines.append("Wins with metrics but no interview story yet — promote while fresh:")
-        for w in strong_untold:
-            lines.append(f"- [{w['id']}] {w['title']}")
-        lines.append("")
+        for w in wins:
+            cat = f" `{w['category']}`" if w.get("category") else ""
+            lines.append(f"### {w['title']}{cat}")
+            lines.append("")
+            lines.append(f"*{w.get('win_date', '')}*")
+            if w.get("description"):
+                lines.append("")
+                lines.append(w["description"])
+            if w.get("impact"):
+                lines.append("")
+                lines.append(f"**Impact:** {w['impact']}")
+            metrics = _parse_json_list(w.get("metrics"))
+            if metrics:
+                lines.append("")
+                lines.append("**Metrics:**")
+                for m in metrics:
+                    lines.append(f"- {m}")
+            stakeholders = _parse_json_list(w.get("stakeholders"))
+            if stakeholders:
+                lines.append("")
+                lines.append(f"**Stakeholders:** {', '.join(str(s) for s in stakeholders)}")
+            lines.append("")
+
+        untold = [w for w in wins if not w.get("story_id")]
+        strong_untold = [w for w in untold if _parse_json_list(w.get("metrics"))]
+        if strong_untold:
+            lines.append("## Untold Stories")
+            lines.append("")
+            lines.append("Wins with metrics but no interview story yet — promote while fresh:")
+            for w in strong_untold:
+                lines.append(f"- [{w['id']}] {w['title']}")
+            lines.append("")
 
     if targets and targets.get("targets_analyzed"):
         lines.append("## Aspirational Targets — wins vs gaps")
@@ -273,10 +273,13 @@ def render_review_markdown(
                     f"- **{g['skill_name']}** — {g['demand_count']} targets, priority {g['priority']}{field}"
                 )
             lines.append("")
-        if targets.get("snapshot_stale"):
-            age = targets.get("snapshot_age_days")
-            label = "never run" if age is None else f"{age}d old"
-            lines.append(f"Fit snapshot is {label} — run `beacon target fit --all` to keep the time series honest.")
+        needing = targets.get("targets_needing_fit") or []
+        if needing:
+            names = ", ".join(t["title"] for t in needing[:3])
+            lines.append(
+                f"{len(needing)} target(s) need a fit snapshot ({names}) — "
+                "run `beacon target fit --all` to keep the time series honest."
+            )
             lines.append("")
 
     return "\n".join(lines) + "\n"
