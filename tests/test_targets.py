@@ -332,6 +332,47 @@ class TestTargetGaps:
         row = conn.execute("SELECT status FROM skill_gaps WHERE skill_name = 'Kubernetes'").fetchone()
         assert row["status"] == "learning"
 
+    def test_sync_retires_gap_when_skill_acquired(self, db):
+        # Codex review, PR #51: a synced gap must not stay open in
+        # gaps list / quest exports after the skill lands in the profile.
+        conn, _ = db
+        _add_basic_target(conn)
+        sync_target_gaps(conn, analyze_target_gaps(conn)["gaps"])
+        _add_skill(conn, "Kubernetes")
+        result = sync_target_gaps(conn, analyze_target_gaps(conn)["gaps"])
+        assert result["retired"] == 1
+        row = conn.execute("SELECT * FROM skill_gaps WHERE skill_name = 'Kubernetes'").fetchone()
+        assert row["status"] == "closed"
+        assert row["demand_count"] == 0
+        assert row["priority"] == 0
+
+    def test_sync_retires_gap_when_target_dropped(self, db):
+        conn, _ = db
+        tid = _add_basic_target(conn, required_skills=["Kafka"])
+        sync_target_gaps(conn, analyze_target_gaps(conn)["gaps"])
+        update_target(conn, tid, status="dropped")
+        result = sync_target_gaps(conn, analyze_target_gaps(conn)["gaps"])
+        assert result["retired"] == 1
+        row = conn.execute("SELECT status FROM skill_gaps WHERE skill_name = 'Kafka'").fetchone()
+        assert row["status"] == "closed"
+
+    def test_sync_never_touches_job_driven_rows(self, db):
+        # Rows owned by `gaps analyze` (no target provenance tag) survive a
+        # target sync even when no target demands the skill.
+        conn, _ = db
+        from beacon.research.skill_gaps import upsert_skill_gaps
+
+        upsert_skill_gaps(conn, [{
+            "skill": "Tableau", "category": "tool", "demand_count": 4,
+            "example_jobs": [{"id": 9, "title": "Analyst", "company": "Acme"}],
+        }])
+        _add_basic_target(conn)
+        result = sync_target_gaps(conn, analyze_target_gaps(conn)["gaps"])
+        assert result["retired"] == 0
+        row = conn.execute("SELECT * FROM skill_gaps WHERE skill_name = 'Tableau'").fetchone()
+        assert row["status"] == "open"
+        assert row["demand_count"] == 4
+
 
 class TestJdVsField:
     def test_diff(self, db):

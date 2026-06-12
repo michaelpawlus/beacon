@@ -493,12 +493,17 @@ def sync_target_gaps(conn: sqlite3.Connection, gaps: list[dict]) -> dict:
     stack-quest/code-daily quest feed) are driven by aspirational demand.
 
     Existing rows keep their status (open/learning/closed); demand_count,
-    priority, and example_jobs are refreshed from target demand.
+    priority, and example_jobs are refreshed from target demand. Synced rows
+    are provenance-tagged (`"target": true` on each example entry — an inner
+    addition, so the gaps-list envelope contract is untouched), and tagged
+    rows whose demand has vanished — skill acquired, or the demanding target
+    dropped — are retired (status closed, demand/priority zeroed). Rows owned
+    by the job-driven `gaps analyze` flow are never touched.
     """
     inserted = 0
     updated = 0
     for gap in gaps:
-        example_json = json.dumps(gap["example_targets"])
+        example_json = json.dumps([{**t, "target": True} for t in gap["example_targets"]])
         existing = conn.execute(
             "SELECT id FROM skill_gaps WHERE skill_name = ?", (gap["skill_name"],)
         ).fetchone()
@@ -518,8 +523,29 @@ def sync_target_gaps(conn: sqlite3.Connection, gaps: list[dict]) -> dict:
                 (gap["skill_name"], gap["category"], gap["demand_count"], example_json, gap["priority"]),
             )
             inserted += 1
+
+    current = {g["skill_name"].lower() for g in gaps}
+    retired = 0
+    stale = conn.execute(
+        "SELECT id, skill_name, example_jobs FROM skill_gaps WHERE status != 'closed'"
+    ).fetchall()
+    for row in stale:
+        if row["skill_name"].lower() in current:
+            continue
+        examples = _parse_json_list(row["example_jobs"])
+        target_owned = bool(examples) and all(
+            isinstance(e, dict) and e.get("target") for e in examples
+        )
+        if target_owned:
+            conn.execute(
+                "UPDATE skill_gaps SET status = 'closed', demand_count = 0, priority = 0, "
+                "updated_at = datetime('now') WHERE id = ?",
+                (row["id"],),
+            )
+            retired += 1
+
     conn.commit()
-    return {"inserted": inserted, "updated": updated}
+    return {"inserted": inserted, "updated": updated, "retired": retired}
 
 
 def jd_vs_field(
