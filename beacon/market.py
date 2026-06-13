@@ -158,12 +158,18 @@ def family_for_title(title: str | None) -> str | None:
 
 
 def listing_in_family(row, family: MarketFamily) -> bool:
-    """True if a job-listing row belongs to ``family`` — by stored archetype
-    (strongest signal) or, failing that, by an equivalent title."""
+    """True if a job-listing row belongs to ``family``.
+
+    A stored archetype is authoritative: a listing already classified into a
+    *different* archetype is excluded even if its title happens to match one of
+    this family's aliases (the alias tables overlap — e.g. "Applied AI Engineer"
+    is both an `agentic` and a `solutions_fde` cue). Title aliases are only
+    consulted when the listing predates the classifier and has no archetype, so
+    a classified listing is never double-counted across families."""
     keys = row.keys() if hasattr(row, "keys") else []
     archetype = row["archetype"] if "archetype" in keys else None
-    if archetype and archetype in family.archetypes:
-        return True
+    if archetype:
+        return archetype in family.archetypes
     return family_for_title(row["title"]) == family.key
 
 

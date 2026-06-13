@@ -151,13 +151,15 @@ class TestGatherDashboardData:
 
 
 class TestActionItems:
-    def test_empty_db_only_nudges_target_seed(self, db):
-        # An empty DB has one standing action: seed the aspirational role
-        # board (#43) — the career-OS track should stay top of mind.
+    def test_empty_db_nudges_career_os_baselines(self, db):
+        # An empty DB has two standing career-OS actions: seed the aspirational
+        # role board (#43) and baseline the role-market radar (#44). Both should
+        # stay top of mind from day one, independent of each other.
         conn, _ = db
         data = gather_dashboard_data(conn)
-        assert len(data.action_items) == 1
-        assert "beacon target seed" in data.action_items[0]
+        assert len(data.action_items) == 2
+        assert any("beacon target seed" in it for it in data.action_items)
+        assert any("beacon career market" in it for it in data.action_items)
 
     def test_stale_applications(self, db):
         conn, _ = db

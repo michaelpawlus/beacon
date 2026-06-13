@@ -136,6 +136,24 @@ class TestListingInFamily:
         row = conn.execute("SELECT * FROM job_listings WHERE id = ?", (lid,)).fetchone()
         assert listing_in_family(row, get_family("solutions_fde"))
 
+    def test_stored_archetype_is_authoritative(self, db):
+        # "Applied AI Engineer" is an alias of BOTH agentic and solutions_fde.
+        # A listing already classified `agentic` must NOT leak into solutions_fde
+        # via the title fallback (that would double-count it across families).
+        conn, _ = db
+        cid = _add_company(conn, "Acme")
+        lid = _add_listing(conn, cid, "Applied AI Engineer", archetype="agentic")
+        row = conn.execute("SELECT * FROM job_listings WHERE id = ?", (lid,)).fetchone()
+        assert listing_in_family(row, get_family("agentic"))
+        assert not listing_in_family(row, get_family("solutions_fde"))
+
+    def test_classified_listing_not_double_counted_in_sweep(self, db):
+        conn, _ = db
+        cid = _add_company(conn, "Acme")
+        _add_listing(conn, cid, "Applied AI Engineer", archetype="agentic")
+        assert sample_listings(conn, get_family("solutions_fde")) == []
+        assert len(sample_listings(conn, get_family("agentic"))) == 1
+
 
 # ── Internal sweep ──────────────────────────────────────────────────
 
@@ -366,6 +384,25 @@ class TestPersistence:
         payload = build_market_snapshot(conn, "solutions_fde", web=False)
         persist_snapshot(conn, payload)
         assert market_snapshot_age_days(conn) == 0
+
+
+class TestDashboardNudge:
+    def test_market_baseline_nudge_surfaces_with_no_targets(self, db):
+        # Fresh user, no role_targets and no market snapshot: the market
+        # baseline reminder must still appear (it is independent of targets).
+        conn, _ = db
+        from beacon.dashboard import _generate_action_items
+
+        items = _generate_action_items(conn)
+        assert any("beacon career market" in it for it in items)
+
+    def test_market_nudge_clears_after_snapshot(self, db):
+        conn, _ = db
+        from beacon.dashboard import _generate_action_items
+
+        persist_snapshot(conn, build_market_snapshot(conn, "solutions_fde", web=False))
+        items = _generate_action_items(conn)
+        assert not any("role-market snapshot" in it.lower() for it in items)
 
 
 # ── Rendering ───────────────────────────────────────────────────────

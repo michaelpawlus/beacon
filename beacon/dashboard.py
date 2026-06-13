@@ -203,8 +203,6 @@ def _target_action_items(conn: sqlite3.Connection) -> list[str]:
         if evidenced:
             names = ", ".join(g["skill_name"] for g in evidenced[:3])
             items.append(f"Win evidence accumulating against target gaps ({names}) — add to skills/resume")
-
-    items.extend(_market_action_items(conn))
     return items
 
 
@@ -225,6 +223,9 @@ def _generate_action_items(conn: sqlite3.Connection) -> list[str]:
     items = []
 
     items.extend(_target_action_items(conn))
+    # Independent of targets — must run even for fresh users with no targets,
+    # so the quarterly role-market cadence surfaces from day one.
+    items.extend(_market_action_items(conn))
 
     # New high-relevance jobs
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
