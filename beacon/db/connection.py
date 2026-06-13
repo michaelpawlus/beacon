@@ -91,6 +91,10 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
             notes TEXT
         );"""
     )
+    # since_days was added after role_market_snapshots first shipped — a DB
+    # created by an earlier build keeps its table untouched by CREATE IF NOT
+    # EXISTS, so window-aware diffing would hit "no such column" without this.
+    _add_column_if_missing(conn, "role_market_snapshots", "since_days", "INTEGER")
     conn.execute(
         """CREATE TABLE IF NOT EXISTS job_requirements (
             job_id INTEGER PRIMARY KEY REFERENCES job_listings(id) ON DELETE CASCADE,
