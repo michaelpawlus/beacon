@@ -457,9 +457,14 @@ def _default_market_search(family: MarketFamily) -> dict:
     text = re.sub(r"\s*```$", "", text)
     try:
         parsed = json.loads(text)
-    except json.JSONDecodeError:
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError as e:
+        # A parse failure is a degraded run, not an empty market — propagate it
+        # so build_market_snapshot records a warning instead of silently
+        # persisting a snapshot with no trends as if the web search succeeded.
+        raise ValueError(f"market web search returned non-JSON: {e}") from e
+    if not isinstance(parsed, dict):
+        raise ValueError("market web search returned non-object JSON")
+    return parsed
 
 
 def external_radar(family: MarketFamily, *, search_fn=None) -> dict:

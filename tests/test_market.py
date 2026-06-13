@@ -17,6 +17,7 @@ from typer.testing import CliRunner
 from beacon.cli import app
 from beacon.db.connection import get_connection, init_db
 from beacon.market import (
+    _default_market_search,
     build_basket,
     build_market_snapshot,
     diff_snapshots,
@@ -370,6 +371,28 @@ class TestExternalRadar:
         payload = build_market_snapshot(conn, "solutions_fde", web=False)
         assert payload["web_enabled"] is False
         assert payload["warnings"] == []
+
+    def test_parse_failure_surfaces_warning(self, db):
+        # A non-JSON web response is a degraded run, not an empty market — it
+        # must record a warning, not silently persist a no-trends snapshot.
+        conn, _ = db
+
+        def garbled(family):
+            raise ValueError("market web search returned non-JSON")
+
+        payload = build_market_snapshot(conn, "solutions_fde", web=True, search_fn=garbled)
+        assert any("web radar failed" in w for w in payload["warnings"])
+        assert payload["trends"] == []
+
+    def test_default_search_raises_on_non_json(self):
+        with patch("beacon.llm.client.web_search", return_value="Here are the results: not json"):
+            with pytest.raises(ValueError, match="non-JSON"):
+                _default_market_search(get_family("solutions_fde"))
+
+    def test_default_search_raises_on_wrong_shape(self):
+        with patch("beacon.llm.client.web_search", return_value="[1, 2, 3]"):
+            with pytest.raises(ValueError, match="non-object"):
+                _default_market_search(get_family("solutions_fde"))
 
 
 # ── Snapshot persistence + diff over time ───────────────────────────
