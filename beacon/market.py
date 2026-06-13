@@ -195,6 +195,42 @@ def _parse_json(value, default):
         return default
 
 
+# Mirror of the schema.sql / connection.py definition. Re-declared here because
+# `beacon dashboard` and `beacon career market` both run on a bare
+# `get_connection()` that never executes `_run_migrations`, so an existing DB
+# from before this table shipped would otherwise raise "no such table" and take
+# the whole dashboard down. Same defensive lazy-create pattern as
+# `job_fit.get_or_extract_requirements`.
+_SNAPSHOT_DDL = """CREATE TABLE IF NOT EXISTS role_market_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    archetype TEXT NOT NULL,
+    captured_at TEXT DEFAULT (datetime('now')),
+    since_days INTEGER,
+    listings_sampled INTEGER,
+    avg_comp_min REAL,
+    avg_comp_max REAL,
+    top_skills TEXT,
+    seniority_mix TEXT,
+    comp_signals TEXT,
+    basket_json TEXT,
+    trends TEXT,
+    direction TEXT,
+    diff_vs_previous TEXT,
+    notes TEXT
+)"""
+
+
+def _ensure_schema(conn: sqlite3.Connection) -> None:
+    """Guarantee role_market_snapshots exists and is current before any read or
+    write, independent of whether `beacon init` / migrations have run. Also
+    backfills the since_days column on a table created by an intermediate build
+    (CREATE TABLE IF NOT EXISTS won't add a column to an existing table)."""
+    conn.execute(_SNAPSHOT_DDL)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(role_market_snapshots)").fetchall()}
+    if "since_days" not in cols:
+        conn.execute("ALTER TABLE role_market_snapshots ADD COLUMN since_days INTEGER")
+
+
 def sample_listings(
     conn: sqlite3.Connection,
     family: MarketFamily,
@@ -311,15 +347,26 @@ def salary_stats(listings: list[dict]) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def build_basket(conn: sqlite3.Connection, family: MarketFamily) -> dict:
+def build_basket(
+    conn: sqlite3.Connection,
+    family: MarketFamily,
+    *,
+    since_days: int | None = None,
+    today: date | None = None,
+) -> dict:
     """The persistent basket: active `role_targets` in this family (Palantir +
     frontier-lab FDEs and friends), each with its captured comp band, enriched
     with any live listing salary at the same employer. The basket average comp
     is snapshotted so quarter-over-quarter movement is visible even though the
-    individual target JDs are frozen."""
+    individual target JDs are frozen.
+
+    ``since_days``/``today`` are threaded into the live-listing enrichment so a
+    windowed run's basket counts/comp reflect the same window as the headline
+    sample (otherwise a `--since-days N` snapshot would claim recent-only while
+    its basket folded in stale listings)."""
     from beacon.targets import list_targets
 
-    listings = sample_listings(conn, family)
+    listings = sample_listings(conn, family, since_days=since_days, today=today)
     by_company: dict[int, list[dict]] = {}
     for listing in listings:
         by_company.setdefault(listing["company_id"], []).append(listing)
@@ -546,7 +593,7 @@ def build_market_snapshot(
         "top_skills": skill_frequencies(listings),
         "seniority_mix": seniority_mix(listings),
     }
-    basket = build_basket(conn, family)
+    basket = build_basket(conn, family, since_days=since_days, today=today)
 
     radar = {"direction": None, "direction_rationale": "", "trends": [], "comp_signals": []}
     if web:
@@ -583,6 +630,7 @@ def build_market_snapshot(
 
 def persist_snapshot(conn: sqlite3.Connection, payload: dict) -> int:
     """Write a snapshot payload into ``role_market_snapshots``; returns its id."""
+    _ensure_schema(conn)
     listings = payload["listings"]
     cur = conn.execute(
         """INSERT INTO role_market_snapshots
@@ -625,6 +673,7 @@ def latest_snapshot(
     snapshot (or vice versa) would record a spurious shrink/growth and corrupt
     the headcount/skill trend series. Each window keeps its own series — a run
     only ever compares against a prior run with the identical ``since_days``."""
+    _ensure_schema(conn)
     if since_days is None:
         row = conn.execute(
             "SELECT * FROM role_market_snapshots WHERE archetype = ? AND since_days IS NULL "
@@ -663,6 +712,7 @@ def latest_snapshot(
 def market_snapshot_age_days(conn: sqlite3.Connection) -> int | None:
     """Days since the newest market snapshot across all families. ``None`` =
     never run (for the dashboard cadence nudge)."""
+    _ensure_schema(conn)
     row = conn.execute(
         "SELECT MAX(captured_at) AS latest FROM role_market_snapshots"
     ).fetchone()

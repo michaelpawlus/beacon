@@ -274,6 +274,23 @@ class TestBasket:
         assert entry["live_listings"] == 1
         assert entry["live_salary"]["avg_comp_min"] == 210000
 
+    def test_basket_enrichment_respects_window(self, db):
+        # A windowed run's basket must not fold in out-of-window listings.
+        conn, _ = db
+        pal = _add_company(conn, "Palantir")
+        add_target(conn, title="Forward Deployed Engineer", company_id=pal,
+                   archetype="solutions_fde", horizon="2y",
+                   target_comp_min=190000, target_comp_max=240000,
+                   required_skills=["Python"])
+        _add_listing(conn, pal, "Forward Deployed Engineer", salary=(210000, 250000), days_ago=200)
+        windowed = build_basket(conn, get_family("solutions_fde"),
+                                since_days=30, today=TODAY)
+        assert windowed["entries"][0]["live_listings"] == 0
+        assert windowed["entries"][0]["live_salary"] is None
+        # Full (no window) still sees the stale listing.
+        full = build_basket(conn, get_family("solutions_fde"))
+        assert full["entries"][0]["live_listings"] == 1
+
 
 # ── Diff ────────────────────────────────────────────────────────────
 
@@ -415,6 +432,17 @@ class TestPersistence:
         payload = build_market_snapshot(conn, "solutions_fde", web=False)
         persist_snapshot(conn, payload)
         assert market_snapshot_age_days(conn) == 0
+
+    def test_tolerates_missing_table(self, db):
+        # `beacon dashboard` / `career market` open a bare get_connection()
+        # that never migrates; an existing DB without role_market_snapshots
+        # must not crash — the schema guard lazily creates it.
+        conn, _ = db
+        conn.execute("DROP TABLE role_market_snapshots")
+        conn.commit()
+        assert market_snapshot_age_days(conn) is None  # recreates, doesn't raise
+        payload = build_market_snapshot(conn, "solutions_fde", web=False)
+        assert persist_snapshot(conn, payload) > 0
 
 
 class TestDashboardNudge:
