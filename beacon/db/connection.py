@@ -72,6 +72,22 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
             quote TEXT,
             date_published TEXT,
             created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS role_market_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            archetype TEXT NOT NULL,
+            captured_at TEXT DEFAULT (datetime('now')),
+            listings_sampled INTEGER,
+            avg_comp_min REAL,
+            avg_comp_max REAL,
+            top_skills TEXT,
+            seniority_mix TEXT,
+            comp_signals TEXT,
+            basket_json TEXT,
+            trends TEXT,
+            direction TEXT,
+            diff_vs_previous TEXT,
+            notes TEXT
         );"""
     )
     conn.execute(

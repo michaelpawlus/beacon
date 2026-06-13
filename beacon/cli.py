@@ -5537,6 +5537,106 @@ def career_review(
             _print(f"[red]✗[/red] {result['error']}" if HAS_RICH else f"✗ {result['error']}")
 
 
+@career_app.command("market")
+def career_market(
+    archetype: str = typer.Option(
+        None, "--archetype", "-a",
+        help="Role family to snapshot (default: solutions_fde). See `--list`.",
+    ),
+    web: bool = typer.Option(
+        True, "--web/--no-web",
+        help="Pull live trends + comp signals (needs ANTHROPIC_API_KEY + network)",
+    ),
+    since_days: int = typer.Option(
+        None, "--since-days",
+        help="Only count listings first seen within N days (default: all active)",
+    ),
+    list_families_opt: bool = typer.Option(
+        False, "--list", help="List the role families and exit",
+    ),
+    vault: bool = typer.Option(
+        False, "--vault", help="Write the snapshot brief to the Obsidian vault via oj capture",
+    ),
+    output: str = typer.Option(None, "--output", "-o", help="Write the brief to a local path"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Compute + print but never persist the snapshot",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Quarterly snapshot of an FDE/applied-AI role family: salary, skill mix,
+    seniority mix, a basket of recurring roles, and what changed since last time."""
+    from datetime import date as _date
+
+    from beacon.market import (
+        build_market_snapshot,
+        get_family,
+        list_families,
+        persist_snapshot,
+        render_market_markdown,
+    )
+
+    if list_families_opt:
+        families = list_families()
+        if as_json:
+            _json_out(families)
+        else:
+            for f in families:
+                _print(f"  [bold]{f['key']}[/bold] — {f['label']}")
+        return
+
+    try:
+        family = get_family(archetype)
+    except ValueError as e:
+        if as_json:
+            _json_out({"error": str(e), "code": 1})
+        else:
+            _print(f"[red]✗[/red] {e}" if HAS_RICH else f"✗ {e}")
+        raise typer.Exit(1)
+
+    conn = get_connection()
+    if not as_json:
+        _stderr(f"Sampling {family.label}" + (" + live market research..." if web else "..."))
+
+    payload = build_market_snapshot(conn, family.key, web=web, since_days=since_days)
+
+    snapshot_id = None
+    if not dry_run:
+        snapshot_id = persist_snapshot(conn, payload)
+    payload["snapshot_id"] = snapshot_id
+
+    markdown = render_market_markdown(payload)
+
+    if output:
+        Path(output).write_text(markdown)
+        payload["path"] = output
+
+    if vault and not dry_run:
+        try:
+            info = _capture_to_vault(
+                body=markdown,
+                folder="Job Search/Role-Market",
+                title=f"{_date.today().isoformat()}-{family.key}-market",
+                fm_type="role-market",
+                company="",
+                role=family.label,
+                extra_tags=["role-market", "career"],
+            )
+            payload["vault_path"] = info.get("path")
+        except RuntimeError as e:
+            payload["warnings"].append(f"vault write skipped: {e}")
+
+    conn.close()
+
+    if as_json:
+        payload["markdown"] = markdown
+        _json_out(payload)
+        return
+
+    for w in payload.get("warnings", []):
+        _stderr(f"⚠️  {w}")
+    print(markdown)
+
+
 # ── Interview Story Bank (#30) ─────────────────────────────────────────
 
 

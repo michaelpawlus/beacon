@@ -203,7 +203,21 @@ def _target_action_items(conn: sqlite3.Connection) -> list[str]:
         if evidenced:
             names = ", ".join(g["skill_name"] for g in evidenced[:3])
             items.append(f"Win evidence accumulating against target gaps ({names}) — add to skills/resume")
+
+    items.extend(_market_action_items(conn))
     return items
+
+
+def _market_action_items(conn: sqlite3.Connection) -> list[str]:
+    """Quarterly role-market radar cadence nudge (mirrors the target-fit one)."""
+    from beacon.market import SNAPSHOT_STALE_DAYS, market_snapshot_age_days
+
+    age = market_snapshot_age_days(conn)
+    if age is None:
+        return ["No role-market snapshot yet — run `beacon career market` to baseline the FDE role family"]
+    if age > SNAPSHOT_STALE_DAYS:
+        return [f"Quarterly role-market snapshot due (last {age}d ago) — `beacon career market`"]
+    return []
 
 
 def _generate_action_items(conn: sqlite3.Connection) -> list[str]:
