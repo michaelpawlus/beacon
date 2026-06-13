@@ -157,20 +157,26 @@ def family_for_title(title: str | None) -> str | None:
     return None
 
 
-def listing_in_family(row, family: MarketFamily) -> bool:
-    """True if a job-listing row belongs to ``family``.
+def matches_family(archetype: str | None, title: str | None, family: MarketFamily) -> bool:
+    """Whether an ``(archetype, title)`` pair belongs to ``family``.
 
-    A stored archetype is authoritative: a listing already classified into a
+    A stored archetype is authoritative: a record already classified into a
     *different* archetype is excluded even if its title happens to match one of
     this family's aliases (the alias tables overlap — e.g. "Applied AI Engineer"
     is both an `agentic` and a `solutions_fde` cue). Title aliases are only
-    consulted when the listing predates the classifier and has no archetype, so
-    a classified listing is never double-counted across families."""
-    keys = row.keys() if hasattr(row, "keys") else []
-    archetype = row["archetype"] if "archetype" in keys else None
+    consulted when the record has no archetype, so a classified listing/target
+    is never double-counted across families. Shared by the listing sweep and
+    the basket so the two can't diverge."""
     if archetype:
         return archetype in family.archetypes
-    return family_for_title(row["title"]) == family.key
+    return family_for_title(title) == family.key
+
+
+def listing_in_family(row, family: MarketFamily) -> bool:
+    """True if a job-listing row belongs to ``family`` (see ``matches_family``)."""
+    keys = row.keys() if hasattr(row, "keys") else []
+    archetype = row["archetype"] if "archetype" in keys else None
+    return matches_family(archetype, row["title"], family)
 
 
 # ---------------------------------------------------------------------------
@@ -320,10 +326,7 @@ def build_basket(conn: sqlite3.Connection, family: MarketFamily) -> dict:
 
     entries: list[dict] = []
     for t in list_targets(conn, status="active"):
-        in_family = (t.get("archetype") in family.archetypes) or (
-            family_for_title(t.get("title")) == family.key
-        )
-        if not in_family:
+        if not matches_family(t.get("archetype"), t.get("title"), family):
             continue
         entry = {
             "target_id": t["id"],

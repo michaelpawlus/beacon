@@ -251,6 +251,16 @@ class TestBasket:
         assert basket["avg_comp_min"] == 190000
         assert basket["entries"][0]["company"] == "Palantir"
 
+    def test_basket_honors_target_archetype_over_title(self, db):
+        # An `agentic` target titled "Applied AI Engineer" (an alias of both
+        # agentic and solutions_fde) must land only in the agentic basket.
+        conn, _ = db
+        add_target(conn, title="Applied AI Engineer", archetype="agentic",
+                   horizon="2y", target_comp_min=200000, target_comp_max=250000,
+                   required_skills=["Python"])
+        assert build_basket(conn, get_family("solutions_fde"))["count"] == 0
+        assert build_basket(conn, get_family("agentic"))["count"] == 1
+
     def test_basket_enriches_with_live_listing_salary(self, db):
         conn, _ = db
         pal = _add_company(conn, "Palantir")
