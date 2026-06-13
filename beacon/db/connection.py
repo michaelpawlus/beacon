@@ -77,6 +77,7 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             archetype TEXT NOT NULL,
             captured_at TEXT DEFAULT (datetime('now')),
+            since_days INTEGER,
             listings_sampled INTEGER,
             avg_comp_min REAL,
             avg_comp_max REAL,

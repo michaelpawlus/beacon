@@ -572,7 +572,7 @@ def build_market_snapshot(
         "warnings": warnings,
     }
 
-    previous = latest_snapshot(conn, family.key)
+    previous = latest_snapshot(conn, family.key, since_days=since_days)
     diff = diff_snapshots(payload, previous)
     payload["diff_vs_previous"] = diff
     payload["category_direction"] = _category_direction(
@@ -586,12 +586,13 @@ def persist_snapshot(conn: sqlite3.Connection, payload: dict) -> int:
     listings = payload["listings"]
     cur = conn.execute(
         """INSERT INTO role_market_snapshots
-           (archetype, listings_sampled, avg_comp_min, avg_comp_max, top_skills,
-            seniority_mix, comp_signals, basket_json, trends, direction,
-            diff_vs_previous, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (archetype, since_days, listings_sampled, avg_comp_min, avg_comp_max,
+            top_skills, seniority_mix, comp_signals, basket_json, trends,
+            direction, diff_vs_previous, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             payload["family"],
+            payload.get("since_days"),
             listings["sampled"],
             listings["avg_comp_min"],
             listings["avg_comp_max"],
@@ -609,20 +610,40 @@ def persist_snapshot(conn: sqlite3.Connection, payload: dict) -> int:
     return cur.lastrowid
 
 
-def latest_snapshot(conn: sqlite3.Connection, family_key: str) -> dict | None:
-    """The newest persisted snapshot for a family, re-hydrated into the same
-    shape ``build_market_snapshot`` produces (so it can seed the next diff)."""
-    row = conn.execute(
-        "SELECT * FROM role_market_snapshots WHERE archetype = ? "
-        "ORDER BY captured_at DESC, id DESC LIMIT 1",
-        (family_key,),
-    ).fetchone()
+def latest_snapshot(
+    conn: sqlite3.Connection,
+    family_key: str,
+    *,
+    since_days: int | None = None,
+) -> dict | None:
+    """The newest persisted snapshot for a family *and the same listing window*,
+    re-hydrated into the shape ``build_market_snapshot`` produces (so it can
+    seed the next diff).
+
+    The window match matters: a ``--since-days N`` run samples a smaller,
+    recency-windowed population, so diffing it against a full all-active
+    snapshot (or vice versa) would record a spurious shrink/growth and corrupt
+    the headcount/skill trend series. Each window keeps its own series — a run
+    only ever compares against a prior run with the identical ``since_days``."""
+    if since_days is None:
+        row = conn.execute(
+            "SELECT * FROM role_market_snapshots WHERE archetype = ? AND since_days IS NULL "
+            "ORDER BY captured_at DESC, id DESC LIMIT 1",
+            (family_key,),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT * FROM role_market_snapshots WHERE archetype = ? AND since_days = ? "
+            "ORDER BY captured_at DESC, id DESC LIMIT 1",
+            (family_key, since_days),
+        ).fetchone()
     if not row:
         return None
     return {
         "id": row["id"],
         "family": row["archetype"],
         "captured_at": row["captured_at"],
+        "since_days": row["since_days"],
         "listings": {
             "sampled": row["listings_sampled"] or 0,
             "avg_comp_min": row["avg_comp_min"],

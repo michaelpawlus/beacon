@@ -388,6 +388,27 @@ class TestPersistence:
         assert "RAG" in diff["skills_added"]
         assert second["category_direction"] == "growing"
 
+    def test_windowed_run_does_not_diff_against_default_window(self, db):
+        # A --since-days run samples a smaller population; it must not diff
+        # against (or be seeded by) a full all-active snapshot, or the trend
+        # series records a false shrink/growth.
+        conn, _ = db
+        cid = _add_company(conn, "Acme")
+        _add_listing(conn, cid, "Forward Deployed Engineer", days_ago=2)
+        _add_listing(conn, cid, "Solutions Engineer", days_ago=200)
+        # Default (all-active) snapshot: 2 listings.
+        persist_snapshot(conn, build_market_snapshot(conn, "solutions_fde", web=False))
+        # First windowed (30d) run sees 1 listing — but diffs against the
+        # *windowed* series (empty), so no false shrink, no diff.
+        windowed = build_market_snapshot(conn, "solutions_fde", web=False,
+                                         since_days=30, today=TODAY)
+        assert windowed["listings"]["sampled"] == 1
+        assert windowed["diff_vs_previous"] is None
+        persist_snapshot(conn, windowed)
+        # The next default run still diffs against the default series (2→2).
+        nxt = build_market_snapshot(conn, "solutions_fde", web=False)
+        assert nxt["diff_vs_previous"]["listings_delta"] == 0
+
     def test_snapshot_age(self, db):
         conn, _ = db
         assert market_snapshot_age_days(conn) is None

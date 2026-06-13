@@ -618,6 +618,7 @@ CREATE TABLE IF NOT EXISTS role_market_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     archetype TEXT NOT NULL,              -- role-family key (e.g. 'solutions_fde')
     captured_at TEXT DEFAULT (datetime('now')),
+    since_days INTEGER,                   -- listing window (NULL = all active); diffs only compare same-window runs
     listings_sampled INTEGER,             -- # equivalent-title listings in scope (headcount proxy)
     avg_comp_min REAL,                    -- mean of listing salary floors with comp
     avg_comp_max REAL,                    -- mean of listing salary ceilings with comp
