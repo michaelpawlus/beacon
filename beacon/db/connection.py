@@ -72,8 +72,29 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
             quote TEXT,
             date_published TEXT,
             created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS role_market_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            archetype TEXT NOT NULL,
+            captured_at TEXT DEFAULT (datetime('now')),
+            since_days INTEGER,
+            listings_sampled INTEGER,
+            avg_comp_min REAL,
+            avg_comp_max REAL,
+            top_skills TEXT,
+            seniority_mix TEXT,
+            comp_signals TEXT,
+            basket_json TEXT,
+            trends TEXT,
+            direction TEXT,
+            diff_vs_previous TEXT,
+            notes TEXT
         );"""
     )
+    # since_days was added after role_market_snapshots first shipped — a DB
+    # created by an earlier build keeps its table untouched by CREATE IF NOT
+    # EXISTS, so window-aware diffing would hit "no such column" without this.
+    _add_column_if_missing(conn, "role_market_snapshots", "since_days", "INTEGER")
     conn.execute(
         """CREATE TABLE IF NOT EXISTS job_requirements (
             job_id INTEGER PRIMARY KEY REFERENCES job_listings(id) ON DELETE CASCADE,
@@ -97,6 +118,7 @@ def reset_db(db_path: Path | str | None = None) -> None:
     """Drop all tables and reinitialize. Use with caution."""
     conn = get_connection(db_path)
     tables = [
+        "role_market_snapshots",
         "role_dispatches", "role_fit_snapshots", "role_targets",
         "interview_stories", "wins",
         "skill_gaps",

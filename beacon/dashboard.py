@@ -206,11 +206,26 @@ def _target_action_items(conn: sqlite3.Connection) -> list[str]:
     return items
 
 
+def _market_action_items(conn: sqlite3.Connection) -> list[str]:
+    """Quarterly role-market radar cadence nudge (mirrors the target-fit one)."""
+    from beacon.market import SNAPSHOT_STALE_DAYS, market_snapshot_age_days
+
+    age = market_snapshot_age_days(conn)
+    if age is None:
+        return ["No role-market snapshot yet — run `beacon career market` to baseline the FDE role family"]
+    if age > SNAPSHOT_STALE_DAYS:
+        return [f"Quarterly role-market snapshot due (last {age}d ago) — `beacon career market`"]
+    return []
+
+
 def _generate_action_items(conn: sqlite3.Connection) -> list[str]:
     """Generate prioritized action items."""
     items = []
 
     items.extend(_target_action_items(conn))
+    # Independent of targets — must run even for fresh users with no targets,
+    # so the quarterly role-market cadence surfaces from day one.
+    items.extend(_market_action_items(conn))
 
     # New high-relevance jobs
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")

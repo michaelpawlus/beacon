@@ -607,6 +607,33 @@ CREATE TABLE IF NOT EXISTS role_dispatches (
 
 CREATE INDEX IF NOT EXISTS idx_dispatches_target ON role_dispatches(role_target_id);
 
+-- Career OS: role-market radar (#44, WS4). One row per `beacon career market`
+-- run — a quarterly snapshot of an FDE/applied-AI role *family* (a basket of
+-- equivalent titles, not a single posting). Tracks the category's salary,
+-- skill mix, seniority mix, and headcount over time, plus a "basket" of
+-- recurring exemplar roles (Palantir + frontier-lab FDEs) whose comp is
+-- re-checked each quarter. `diff_vs_previous` is the headline: which skills are
+-- rising/falling and where comp bands moved since last quarter (absorbs #21).
+CREATE TABLE IF NOT EXISTS role_market_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    archetype TEXT NOT NULL,              -- role-family key (e.g. 'solutions_fde')
+    captured_at TEXT DEFAULT (datetime('now')),
+    since_days INTEGER,                   -- listing window (NULL = all active); diffs only compare same-window runs
+    listings_sampled INTEGER,             -- # equivalent-title listings in scope (headcount proxy)
+    avg_comp_min REAL,                    -- mean of listing salary floors with comp
+    avg_comp_max REAL,                    -- mean of listing salary ceilings with comp
+    top_skills TEXT,                      -- JSON [{skill, count}]
+    seniority_mix TEXT,                   -- JSON {bucket: count}
+    comp_signals TEXT,                    -- JSON [{source, range, url}] from web (absorbs #21)
+    basket_json TEXT,                     -- JSON: tracked recurring roles + comp + average
+    trends TEXT,                          -- JSON from LLM web search
+    direction TEXT,                       -- growing|shrinking|stable|unknown (category pulse)
+    diff_vs_previous TEXT,                -- JSON: skills rising/falling/added/removed + deltas
+    notes TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_market_snapshots_family ON role_market_snapshots(archetype, captured_at DESC);
+
 -- Cached structured requirements for a job listing — populated on first
 -- `beacon match-jobs` run per listing, refreshed when the listing's
 -- date_last_seen advances past extracted_at.
