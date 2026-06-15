@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections import Counter
-from datetime import date
+from datetime import date, datetime
 
 from beacon.career import category_mix, current_role, list_wins, resolve_since
 from beacon.db.profile import get_skills
@@ -33,8 +33,8 @@ from beacon.market import (
     SNAPSHOT_STALE_DAYS,
     get_family,
     latest_snapshot,
-    market_snapshot_age_days,
 )
+from beacon.research.skill_gaps import _normalize_skill
 from beacon.targets import analyze_target_gaps
 
 # The static framing that opens every guide. Kept here (not in the DB) because
@@ -57,6 +57,18 @@ _FDE_MEDIA_TAGS = {
     "fde", "adoption", "enablement", "diffusion", "deployment",
     "forward-deployed", "solutions", "applied-ai", "alignment",
 }
+
+
+def _snapshot_age_days(captured_at: str | None) -> int | None:
+    """Days since a snapshot's ``captured_at`` (the ``%Y-%m-%dT%H:%M:%SZ`` shape
+    ``latest_snapshot`` returns). ``None`` when absent/unparseable."""
+    if not captured_at:
+        return None
+    try:
+        ts = datetime.fromisoformat(captured_at.replace("Z", ""))
+    except ValueError:
+        return None
+    return (datetime.utcnow() - ts).days
 
 
 def _parse_json_list(value) -> list:
@@ -84,21 +96,29 @@ def compute_strengths(conn: sqlite3.Connection, wins: list[dict]) -> list[dict]:
     Win-backed skills sort first; proficiency is the tiebreaker. This is the
     deliberate mirror of the gaps section: the guide always shows both edges of
     the picture, never just the deficits.
+
+    Win technologies and profile skill names are both run through the same
+    ``_normalize_skill`` canonicalization the gap analysis uses, so a win tagged
+    ``k8s`` matches a profile skill ``Kubernetes`` instead of being mis-flagged
+    as an unlisted skill to add.
     """
     win_tech: Counter[str] = Counter()
     win_examples: dict[str, str] = {}
+    win_display: dict[str, str] = {}
     for w in wins:
         for t in _parse_json_list(w.get("technologies")):
-            key = str(t).lower()
+            canonical = _normalize_skill(str(t))
+            key = canonical.lower()
             win_tech[key] += 1
             win_examples.setdefault(key, w["title"])
+            win_display.setdefault(key, canonical)
 
     strengths: list[dict] = []
     seen: set[str] = set()
 
     for s in get_skills(conn):
         name = s["name"]
-        key = name.lower()
+        key = _normalize_skill(name).lower()
         prof = s["proficiency"]
         win_count = win_tech.get(key, 0)
         if (_PROFICIENCY_RANK.get(prof, 0) == 0) and win_count == 0:
@@ -112,13 +132,13 @@ def compute_strengths(conn: sqlite3.Connection, wins: list[dict]) -> list[dict]:
             "example_win": win_examples.get(key),
         })
 
-    # Win-backed skills the profile doesn't even list yet — surfaced so they get
-    # added to the skills table and onto the resume.
+    # Win-backed skills the profile doesn't even list yet — surfaced (in their
+    # canonical form) so they get added to the skills table and onto the resume.
     for key, count in win_tech.items():
         if key in seen:
             continue
         strengths.append({
-            "skill": key,
+            "skill": win_display.get(key, key),
             "category": None,
             "proficiency": None,
             "win_evidence_count": count,
@@ -290,7 +310,9 @@ def build_guide(
     gaps = analysis["gaps"]
 
     snapshot = latest_snapshot(conn, family.key)
-    market_age = market_snapshot_age_days(conn)
+    # Staleness must read the *selected family's* snapshot — a fresh snapshot for
+    # a different family must not mask a months-old one for this family.
+    market_age = _snapshot_age_days(snapshot.get("captured_at")) if snapshot else None
     market_stale = market_age is None or market_age > SNAPSHOT_STALE_DAYS
 
     strengths = compute_strengths(conn, wins)

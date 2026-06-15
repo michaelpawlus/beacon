@@ -82,6 +82,24 @@ class TestComputeStrengths:
         assert evals["unlisted"] is True
         assert evals["example_win"] == "Built evals harness"
 
+    def test_win_alias_matches_canonical_skill(self, db):
+        # A win tagged `k8s` must credit the profile's `Kubernetes`, not be
+        # mis-flagged as an unlisted skill to add (Codex P2 #r3410532984).
+        conn, _ = db
+        add_skill(conn, "Kubernetes", proficiency="intermediate")
+        add_win(conn, "Migrated to k8s", technologies=["k8s"])
+        strengths = compute_strengths(conn, _wins(conn))
+        kube = next(s for s in strengths if s["skill"] == "Kubernetes")
+        assert kube["win_evidence_count"] == 1
+        assert all(s["skill"].lower() != "k8s" for s in strengths)
+
+    def test_unlisted_win_skill_shown_canonical(self, db):
+        conn, _ = db
+        add_win(conn, "Shipped LLM feature", technologies=["llm"])
+        strengths = compute_strengths(conn, _wins(conn))
+        # Surfaced in canonical form (LLMs), not the raw alias.
+        assert any(s["skill"] == "LLMs" and s.get("unlisted") for s in strengths)
+
 
 # ── High-signal media ────────────────────────────────────────────────
 
@@ -188,6 +206,24 @@ class TestBuildGuide:
         md = render_guide_markdown(guide)
         assert "Python" in md
         assert "Forward Deployed" in guide["family_label"]
+
+    def test_staleness_uses_selected_family_snapshot(self, db):
+        # A fresh snapshot for a *different* family must not mask a months-old
+        # one for the selected family (Codex P2 #r3410532981).
+        conn, _ = db
+        persist_snapshot(conn, build_market_snapshot(conn, "solutions_fde", web=False))
+        # Age the solutions_fde snapshot well past the 90-day threshold.
+        conn.execute(
+            "UPDATE role_market_snapshots SET captured_at = '2026-01-01T00:00:00Z' "
+            "WHERE archetype = 'solutions_fde'"
+        )
+        conn.commit()
+        # A brand-new agentic snapshot (newest row across the whole table).
+        persist_snapshot(conn, build_market_snapshot(conn, "agentic", web=False))
+
+        guide = build_guide(conn, family_key="solutions_fde")
+        assert guide["market_age_days"] is not None and guide["market_age_days"] > 90
+        assert guide["market_stale"] is True
 
 
 # ── CLI wiring ───────────────────────────────────────────────────────
