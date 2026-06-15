@@ -237,6 +237,37 @@ class TestBuildGuide:
         assert ray["status"] == "learning"
         assert "_learning_" in render_guide_markdown(guide)
 
+    def test_auto_retired_gap_reopens_when_demanded(self, db):
+        # A gap auto-retired by sync (closed + zeroed demand/priority) that is
+        # demanded again must be shown, not hidden — the guide is read-only
+        # without --refresh, so it mirrors sync's reopen (Codex P2 #r3410574111).
+        conn, _ = db
+        add_target(conn, title="FDE", horizon="2y", required_skills=["Ray"])
+        analysis = analyze_target_gaps(conn)
+        sync_target_gaps(conn, analysis["gaps"])
+        # Stamp the auto-retired fingerprint while demand is still live.
+        conn.execute(
+            "UPDATE skill_gaps SET status='closed', demand_count=0, priority=0 "
+            "WHERE LOWER(skill_name)='ray'"
+        )
+        conn.commit()
+
+        guide = build_guide(conn)
+        ray = next((g for g in guide["gaps"] if g["skill_name"].lower() == "ray"), None)
+        assert ray is not None, "auto-retired-but-demanded gap should reopen"
+        assert ray["status"] == "open"
+
+    def test_manual_close_with_demand_stays_hidden(self, db):
+        # A manual close (status closed, demand/priority preserved) is respected.
+        conn, _ = db
+        add_target(conn, title="FDE", horizon="2y", required_skills=["Spark"])
+        analysis = analyze_target_gaps(conn)
+        sync_target_gaps(conn, analysis["gaps"])
+        update_skill_gap_status(conn, "Spark", "closed")  # preserves demand/priority
+
+        guide = build_guide(conn)
+        assert all(g["skill_name"].lower() != "spark" for g in guide["gaps"])
+
     def test_staleness_uses_selected_family_snapshot(self, db):
         # A fresh snapshot for a *different* family must not mask a months-old
         # one for the selected family (Codex P2 #r3410532981).

@@ -291,21 +291,37 @@ def recommend_focus(
 
 def _open_target_gaps(conn: sqlite3.Connection, gaps: list[dict]) -> list[dict]:
     """Attach the tracked ``skill_gaps.status`` to each target gap and drop any
-    the user has explicitly marked closed.
+    the user has *deliberately* closed.
 
     Mirrors ``beacon target gaps``: ``analyze_target_gaps`` doesn't join the
     tracker, so a gap retired via ``beacon gaps update <skill> --status closed``
     would otherwise still surface as open here and could be recommended as the
-    top focus even though the tracker says it's done."""
-    statuses = {
-        r["skill_name"].lower(): r["status"]
-        for r in conn.execute("SELECT skill_name, status FROM skill_gaps").fetchall()
+    top focus even though the tracker says it's done.
+
+    But not every ``closed`` row is a user decision. ``sync_target_gaps``
+    auto-retires purely target-owned gaps when their demand vanishes (closing
+    them with demand/priority zeroed) and *reopens* them when demand returns.
+    The guide is read-only without ``--refresh``, so it can't rely on that sync
+    having run — if ``analyze_target_gaps`` is reporting the skill again, demand
+    is back. So we distinguish the two by the same fingerprint the sync uses:
+    a closed row with zeroed demand/priority is auto-retired and is reopened
+    here (the gap is live again); a closed row that still carries demand is a
+    manual close and stays hidden."""
+    rows = {
+        r["skill_name"].lower(): r
+        for r in conn.execute(
+            "SELECT skill_name, status, demand_count, priority FROM skill_gaps"
+        ).fetchall()
     }
     out: list[dict] = []
     for g in gaps:
-        status = statuses.get(g["skill_name"].lower(), "open")
+        row = rows.get(g["skill_name"].lower())
+        status = row["status"] if row else "open"
         if status == "closed":
-            continue
+            auto_retired = (row["demand_count"] or 0) == 0 and (row["priority"] or 0) == 0
+            if not auto_retired:
+                continue  # respect a deliberate manual close
+            status = "open"  # demand is back — mirror sync's reopen
         out.append({**g, "status": status})
     return out
 
