@@ -50,8 +50,9 @@ class TestScoreCandidate:
     def test_signal_cap_at_five(self):
         many = [{"signal_type": "engineering_blog", "title": f"s{i}"} for i in range(10)]
         c = _candidate(signals=many)
-        # source(1.5) + 5 signals(5) + 4 fields(2.0) = 8.5
-        assert score_candidate(c) == 8.5
+        # source(1.5) + 5 signals(5) + 4 fields(2.0) + posture bonus(1.0) = 9.5
+        # (10 engineering_blog signals clear the native gate → clear posture → +1.0)
+        assert score_candidate(c) == 9.5
 
     def test_strong_signal_bonus(self):
         weak = _candidate(signals=[{"signal_type": "engineering_blog", "title": "x", "signal_strength": 2}])

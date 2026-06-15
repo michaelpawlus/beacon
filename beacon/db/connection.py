@@ -33,6 +33,10 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
     _add_column_if_missing(conn, "job_listings", "archetype", "TEXT")
     _add_column_if_missing(conn, "job_listings", "archetype_confidence", "REAL")
     _add_column_if_missing(conn, "discovery_candidates", "discovery_score", "REAL DEFAULT 0")
+    # AI posture (#46): native / forward / curious, derived from the signal mix.
+    _add_column_if_missing(conn, "companies", "ai_posture", "TEXT")
+    _add_column_if_missing(conn, "companies", "posture_confidence", "REAL")
+    _add_column_if_missing(conn, "discovery_candidates", "ai_posture", "TEXT")
     conn.executescript(
         """CREATE TABLE IF NOT EXISTS role_targets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

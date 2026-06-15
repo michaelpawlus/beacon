@@ -195,6 +195,10 @@ def companies(
     tier: int = typer.Option(None, "--tier", "-t", help="Filter by tier (1-4)"),
     min_score: float = typer.Option(None, "--min-score", "-m", help="Minimum AI-first score"),
     tools: str = typer.Option(None, "--tools", help="Filter by adopted tool name (partial match)"),
+    posture: str = typer.Option(
+        None, "--posture",
+        help="Filter by AI posture: ai_native / ai_forward / ai_curious",
+    ),
     limit: int = typer.Option(50, "--limit", "-l", help="Max results"),
     as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
@@ -202,6 +206,17 @@ def companies(
     if ctx.invoked_subcommand is not None:
         return
     conn = get_connection()
+
+    if posture is not None:
+        from beacon.research.posture import VALID_POSTURES
+        if posture not in VALID_POSTURES:
+            conn.close()
+            msg = f"Invalid posture '{posture}'. Choose one of: {', '.join(VALID_POSTURES)}"
+            if as_json:
+                _json_out({"error": msg, "code": 1})
+            else:
+                _stderr(msg)
+            raise typer.Exit(1)
 
     if tools:
         query = (
@@ -222,6 +237,9 @@ def companies(
     if min_score:
         query += f" AND {col_prefix}ai_first_score >= ?"
         params.append(min_score)
+    if posture:
+        query += f" AND {col_prefix}ai_posture = ?"
+        params.append(posture)
 
     query += f" ORDER BY {col_prefix}ai_first_score DESC LIMIT ?"
     params.append(limit)
@@ -243,10 +261,16 @@ def companies(
         table.add_column("Company", style="bold")
         table.add_column("Score", justify="right", style="green")
         table.add_column("Tier", justify="center")
+        table.add_column("Posture", width=11)
         table.add_column("Remote", width=14)
         table.add_column("Industry")
 
         tier_labels = {1: "🟢 AI-Native", 2: "🔵 Convert", 3: "🟡 Strong", 4: "⚪ Emerging"}
+        posture_labels = {
+            "ai_native": "[green]native[/green]",
+            "ai_forward": "[cyan]forward[/cyan]",
+            "ai_curious": "[dim]curious[/dim]",
+        }
 
         for i, r in enumerate(rows, 1):
             score_color = "green" if r["ai_first_score"] >= 7 else "yellow" if r["ai_first_score"] >= 4 else "red"
@@ -255,6 +279,7 @@ def companies(
                 r["name"],
                 f"[{score_color}]{r['ai_first_score']:.1f}[/{score_color}]",
                 tier_labels.get(r["tier"], "?"),
+                posture_labels.get(r["ai_posture"], "—"),
                 r["remote_policy"] or "unknown",
                 r["industry"] or "",
             )
@@ -412,11 +437,26 @@ def companies_discover(
 def companies_candidates(
     source: str = typer.Option(None, "--source", "-s", help="Filter by source adapter"),
     status: str = typer.Option("pending", "--status", help="Filter by status: pending/promoted/rejected/all"),
+    posture: str = typer.Option(
+        None, "--posture",
+        help="Filter by AI posture: ai_native / ai_forward / ai_curious",
+    ),
     limit: int = typer.Option(50, "--limit", "-l", help="Max results"),
     as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """List discovery candidates ranked by evidence-weighted score."""
     conn = get_connection()
+
+    if posture is not None:
+        from beacon.research.posture import VALID_POSTURES
+        if posture not in VALID_POSTURES:
+            conn.close()
+            msg = f"Invalid posture '{posture}'. Choose one of: {', '.join(VALID_POSTURES)}"
+            if as_json:
+                _json_out({"error": msg, "code": 1})
+            else:
+                _stderr(msg)
+            raise typer.Exit(1)
 
     query = "SELECT * FROM discovery_candidates WHERE 1=1"
     params: list = []
@@ -426,6 +466,9 @@ def companies_candidates(
     if source:
         query += " AND source = ?"
         params.append(source)
+    if posture:
+        query += " AND ai_posture = ?"
+        params.append(posture)
     query += " ORDER BY discovery_score DESC, created_at DESC LIMIT ?"
     params.append(limit)
 
@@ -445,14 +488,17 @@ def companies_candidates(
         table.add_column("ID", style="dim", width=4)
         table.add_column("Name", style="bold")
         table.add_column("Source")
+        table.add_column("Posture", width=11)
         table.add_column("Domain")
         table.add_column("Industry")
         table.add_column("Score", justify="right", style="green")
+        posture_short = {"ai_native": "native", "ai_forward": "forward", "ai_curious": "curious"}
         for r in rows:
             table.add_row(
                 str(r["id"]),
                 r["name"],
                 r["source"],
+                posture_short.get(r["ai_posture"], "—"),
                 r["domain"] or "—",
                 (r["industry"] or "")[:32],
                 f"{r['discovery_score']:.1f}",
@@ -556,6 +602,17 @@ def companies_promote(
             )
             signals_added += 1
 
+    # Derive the AI posture for the freshly-promoted company from the signals we
+    # just copied in (#46), so it's immediately reachable via `--posture` without
+    # waiting for the next `beacon scores` run.
+    from beacon.research.posture import classify_company
+
+    posture = classify_company(conn, company_id)
+    conn.execute(
+        "UPDATE companies SET ai_posture = ?, posture_confidence = ? WHERE id = ?",
+        (posture.posture, posture.confidence, company_id),
+    )
+
     conn.execute(
         """
         UPDATE discovery_candidates
@@ -575,6 +632,8 @@ def companies_promote(
         "name": cand["name"],
         "tier": tier,
         "signals_added": signals_added,
+        "ai_posture": posture.posture,
+        "posture_confidence": posture.confidence,
     }
 
     if as_json:
@@ -635,6 +694,246 @@ def companies_reject(
         return
 
     _print(f"Rejected candidate {candidate_id} ({cand['name']}) — {reason or 'no reason given'}")
+
+
+_AI_SIGNAL_TYPES = {
+    "leadership_statement", "engineering_blog", "job_posting_language",
+    "conference_talk", "employee_report", "press_coverage",
+    "github_activity", "company_policy", "product_integration", "tool_mandate",
+}
+_IMPACT_LEVELS = {"company-wide", "engineering", "team", "personal"}
+_ADOPTION_LEVELS = {"required", "encouraged", "allowed", "exploring", "rumored"}
+
+
+@companies_app.command("evidence")
+def companies_evidence(
+    name: str = typer.Argument(..., help="Company name (created as a tier-4 tracked company if new)"),
+    title: str = typer.Option(..., "--title", help="One-line description of the story/evidence"),
+    signal_type: str = typer.Option(
+        "company_policy", "--type",
+        help="ai_signals type (company_policy, tool_mandate, employee_report, leadership_statement, ...)",
+    ),
+    source_url: str = typer.Option(None, "--url", help="Link to the story (blog, press, case study)"),
+    strength: int = typer.Option(3, "--strength", min=1, max=5, help="Signal strength 1-5"),
+    date_observed: str = typer.Option(None, "--date", help="When observed (ISO date)"),
+    leader: str = typer.Option(None, "--leader", help="If set, also log a leadership_signal for this person"),
+    leader_title: str = typer.Option(None, "--leader-title", help="Leader's role (with --leader)"),
+    impact: str = typer.Option("company-wide", "--impact", help="Leadership impact_level (with --leader)"),
+    tool: str = typer.Option(None, "--tool", help="If set, also log a tools_adopted row for this tool"),
+    adoption: str = typer.Option("encouraged", "--adoption", help="Adoption level (with --tool)"),
+    no_create: bool = typer.Option(False, "--no-create", help="Error instead of creating an unknown company"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Log a piece of AI-posture evidence (a "story") for a company.
+
+    This is the collect-the-case engine behind the AI-forward sweep (#46): an
+    older, non-AI-native company that shows leadership alignment around AI —
+    hiring, investment, case studies — rarely has *one* decisive signal, but
+    each logged story builds the case. Add them as you find them; posture is
+    re-derived after every story, so a thin case reads as `ai_curious`
+    (circle back) until the evidence tips it to `ai_forward`.
+    """
+    from beacon.research.posture import classify_company
+
+    if signal_type not in _AI_SIGNAL_TYPES:
+        msg = f"Invalid --type '{signal_type}'. Choose one of: {', '.join(sorted(_AI_SIGNAL_TYPES))}"
+        if as_json:
+            _json_out({"error": msg, "code": 1})
+        else:
+            _stderr(msg)
+        raise typer.Exit(1)
+    if leader and impact not in _IMPACT_LEVELS:
+        msg = f"Invalid --impact '{impact}'. Choose one of: {', '.join(sorted(_IMPACT_LEVELS))}"
+        if as_json:
+            _json_out({"error": msg, "code": 1})
+        else:
+            _stderr(msg)
+        raise typer.Exit(1)
+    if tool and adoption not in _ADOPTION_LEVELS:
+        msg = f"Invalid --adoption '{adoption}'. Choose one of: {', '.join(sorted(_ADOPTION_LEVELS))}"
+        if as_json:
+            _json_out({"error": msg, "code": 1})
+        else:
+            _stderr(msg)
+        raise typer.Exit(1)
+
+    conn = get_connection()
+
+    row = conn.execute(
+        "SELECT id, name FROM companies WHERE LOWER(name) = LOWER(?)", (name,)
+    ).fetchone()
+    created = False
+    if row is None:
+        if no_create:
+            conn.close()
+            msg = f"No company named '{name}' (pass without --no-create to track it)"
+            if as_json:
+                _json_out({"error": msg, "code": 2})
+            else:
+                _stderr(msg)
+            raise typer.Exit(2)
+        cursor = conn.execute(
+            "INSERT INTO companies (name, tier, notes, last_researched_at) "
+            "VALUES (?, 4, 'auto-created via `beacon companies evidence`', datetime('now'))",
+            (name,),
+        )
+        company_id = cursor.lastrowid
+        created = True
+        display_name = name
+    else:
+        company_id = row["id"]
+        display_name = row["name"]
+
+    conn.execute(
+        """
+        INSERT INTO ai_signals
+            (company_id, signal_type, title, source_url, source_name, signal_strength, date_observed)
+        VALUES (?, ?, ?, ?, 'beacon evidence', ?, ?)
+        """,
+        (company_id, signal_type, title, source_url, strength, date_observed),
+    )
+    added = {"ai_signal": signal_type}
+
+    if leader:
+        conn.execute(
+            """
+            INSERT INTO leadership_signals
+                (company_id, leader_name, leader_title, signal_type, content, source_url, date_observed, impact_level)
+            VALUES (?, ?, ?, 'quote', ?, ?, ?, ?)
+            """,
+            (company_id, leader, leader_title, title, source_url, date_observed, impact),
+        )
+        added["leadership_signal"] = impact
+
+    if tool:
+        conn.execute(
+            """
+            INSERT INTO tools_adopted (company_id, tool_name, adoption_level, evidence_url, date_observed)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (company_id, tool, adoption, source_url, date_observed),
+        )
+        added["tool_adopted"] = f"{tool} ({adoption})"
+
+    posture = classify_company(conn, company_id)
+    conn.execute(
+        "UPDATE companies SET ai_posture = ?, posture_confidence = ?, updated_at = datetime('now') WHERE id = ?",
+        (posture.posture, posture.confidence, company_id),
+    )
+    conn.commit()
+    conn.close()
+
+    payload = {
+        "company_id": company_id,
+        "name": display_name,
+        "created": created,
+        "added": added,
+        **posture.as_dict(),
+    }
+    if as_json:
+        _json_out(payload)
+        return
+
+    note = "created + " if created else ""
+    _print(
+        f"[green]✓[/green] {note}logged evidence for {display_name} → "
+        f"posture [cyan]{posture.posture}[/cyan] ({posture.confidence:.0%}, {posture.evidence_count} signals)"
+        if HAS_RICH
+        else f"✓ {note}logged evidence for {display_name} → posture {posture.posture} "
+             f"({posture.confidence:.0%}, {posture.evidence_count} signals)"
+    )
+    if posture.circle_back:
+        _stderr("  ↻ thin case — circle back as more stories surface")
+
+
+@companies_app.command("peers")
+def companies_peers(
+    name: str = typer.Argument(..., help="Company name (partial match)"),
+    same_industry: bool = typer.Option(False, "--same-industry", help="Restrict peers to the same industry"),
+    limit: int = typer.Option(15, "--limit", "-l", help="Max peers"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """List like companies (same AI posture) with their open-role counts.
+
+    Surfaces companies that relate to AI the same way the target does, so you
+    can compare what they hire for and what they're shipping — useful well
+    beyond an active job search (role benchmarking, market awareness).
+    """
+    conn = get_connection()
+
+    target = conn.execute(
+        "SELECT * FROM companies WHERE name LIKE ? ORDER BY ai_first_score DESC LIMIT 1",
+        (f"%{name}%",),
+    ).fetchone()
+    if target is None:
+        conn.close()
+        msg = f"No company found matching '{name}'"
+        if as_json:
+            _json_out({"error": msg, "code": 2})
+        else:
+            _stderr(msg)
+        raise typer.Exit(2)
+
+    if not target["ai_posture"]:
+        conn.close()
+        msg = f"{target['name']} has no posture yet — run `beacon scores --company \"{target['name']}\"` first"
+        if as_json:
+            _json_out({"error": msg, "code": 1})
+        else:
+            _stderr(msg)
+        raise typer.Exit(1)
+
+    query = (
+        "SELECT c.*, "
+        "(SELECT COUNT(*) FROM job_listings j WHERE j.company_id = c.id AND j.status = 'active') AS active_jobs "
+        "FROM companies c WHERE c.ai_posture = ? AND c.id != ?"
+    )
+    params: list = [target["ai_posture"], target["id"]]
+    if same_industry and target["industry"]:
+        query += " AND c.industry = ?"
+        params.append(target["industry"])
+    query += " ORDER BY active_jobs DESC, c.ai_first_score DESC LIMIT ?"
+    params.append(limit)
+
+    peers = conn.execute(query, params).fetchall()
+    conn.close()
+
+    if as_json:
+        _json_out({
+            "target": {
+                "id": target["id"],
+                "name": target["name"],
+                "ai_posture": target["ai_posture"],
+                "industry": target["industry"],
+            },
+            "same_industry": same_industry,
+            "peers": _rows_to_list(peers),
+        })
+        return
+
+    if not peers:
+        _print(f"No {target['ai_posture']} peers found for {target['name']}.")
+        return
+
+    if HAS_RICH:
+        table = Table(title=f"{target['name']} peers — posture: {target['ai_posture']}")
+        table.add_column("Company", style="bold")
+        table.add_column("Score", justify="right", style="green")
+        table.add_column("Open roles", justify="right")
+        table.add_column("Industry")
+        table.add_column("Careers")
+        for r in peers:
+            table.add_row(
+                r["name"],
+                f"{r['ai_first_score']:.1f}",
+                str(r["active_jobs"]),
+                (r["industry"] or "")[:28],
+                r["careers_url"] or "—",
+            )
+        console.print(table)
+    else:
+        for r in peers:
+            print(f"  [{r['ai_first_score']:.1f}] {r['name']} — {r['active_jobs']} open roles ({r['industry'] or '—'})")
 
 
 @companies_app.command("diff")
@@ -927,6 +1226,10 @@ def show(
     if HAS_RICH:
         console.print(Panel(f"[bold]{row['name']}[/bold] — {row['description'] or ''}", style="blue"))
         console.print(f"  Score: [bold green]{row['ai_first_score']:.1f}[/bold green] / 10")
+        if row["ai_posture"]:
+            conf = row["posture_confidence"]
+            conf_str = f" ({conf:.0%} conf)" if conf is not None else ""
+            console.print(f"  Posture: [cyan]{row['ai_posture']}[/cyan]{conf_str}")
         console.print(f"  Tier: {row['tier']} | Remote: {row['remote_policy']} | Size: {row['size_bucket']}")
         console.print(f"  Industry: {row['industry']} | HQ: {row['hq_location']}")
         console.print(f"  Careers: {row['careers_url']}")
