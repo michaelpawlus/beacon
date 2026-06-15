@@ -18,7 +18,8 @@ from beacon.materials.success_guide import (
     recommend_focus,
     render_guide_markdown,
 )
-from beacon.targets import add_target
+from beacon.research.skill_gaps import update_skill_gap_status
+from beacon.targets import add_target, analyze_target_gaps, sync_target_gaps
 
 runner = CliRunner()
 
@@ -206,6 +207,35 @@ class TestBuildGuide:
         md = render_guide_markdown(guide)
         assert "Python" in md
         assert "Forward Deployed" in guide["family_label"]
+
+    def test_closed_gap_is_filtered(self, db):
+        # A gap the user marked closed via `beacon gaps update` must not show as
+        # open or be recommended (Codex P2 #r3410566...).
+        conn, _ = db
+        add_target(conn, title="FDE", horizon="2y",
+                   required_skills=["Kubernetes", "Evals"])
+        analysis = analyze_target_gaps(conn)
+        sync_target_gaps(conn, analysis["gaps"])
+        update_skill_gap_status(conn, "Kubernetes", "closed")
+
+        guide = build_guide(conn)
+        skills = {g["skill_name"].lower() for g in guide["gaps"]}
+        assert "kubernetes" not in skills
+        assert "evals" in skills
+        # And it isn't recommended as the top focus.
+        assert not any("Kubernetes" in r for r in guide["recommendations"])
+
+    def test_learning_status_annotated(self, db):
+        conn, _ = db
+        add_target(conn, title="FDE", horizon="2y", required_skills=["Ray"])
+        analysis = analyze_target_gaps(conn)
+        sync_target_gaps(conn, analysis["gaps"])
+        update_skill_gap_status(conn, "Ray", "learning")
+
+        guide = build_guide(conn)
+        ray = next(g for g in guide["gaps"] if g["skill_name"].lower() == "ray")
+        assert ray["status"] == "learning"
+        assert "_learning_" in render_guide_markdown(guide)
 
     def test_staleness_uses_selected_family_snapshot(self, db):
         # A fresh snapshot for a *different* family must not mask a months-old

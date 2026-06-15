@@ -289,6 +289,27 @@ def recommend_focus(
 # ---------------------------------------------------------------------------
 
 
+def _open_target_gaps(conn: sqlite3.Connection, gaps: list[dict]) -> list[dict]:
+    """Attach the tracked ``skill_gaps.status`` to each target gap and drop any
+    the user has explicitly marked closed.
+
+    Mirrors ``beacon target gaps``: ``analyze_target_gaps`` doesn't join the
+    tracker, so a gap retired via ``beacon gaps update <skill> --status closed``
+    would otherwise still surface as open here and could be recommended as the
+    top focus even though the tracker says it's done."""
+    statuses = {
+        r["skill_name"].lower(): r["status"]
+        for r in conn.execute("SELECT skill_name, status FROM skill_gaps").fetchall()
+    }
+    out: list[dict] = []
+    for g in gaps:
+        status = statuses.get(g["skill_name"].lower(), "open")
+        if status == "closed":
+            continue
+        out.append({**g, "status": status})
+    return out
+
+
 def build_guide(
     conn: sqlite3.Connection,
     since: str = "90d",
@@ -307,7 +328,7 @@ def build_guide(
     win_mix = category_mix(wins)
 
     analysis = analyze_target_gaps(conn)
-    gaps = analysis["gaps"]
+    gaps = _open_target_gaps(conn, analysis["gaps"])
 
     # Any window — the guide just displays the most recent market read, so a
     # user who only keeps `--since-days N` snapshots still gets a market section
@@ -441,9 +462,10 @@ def render_guide_markdown(guide: dict) -> str:
                 f" · {g['win_evidence_count']} win(s) closing it"
                 if g.get("win_evidence_count") else ""
             )
+            learning = " · _learning_" if g.get("status") == "learning" else ""
             lines.append(
                 f"- **{g['skill_name']}** — {g['demand_count']} target(s), "
-                f"priority {g['priority']}{field}{evidence}"
+                f"priority {g['priority']}{field}{learning}{evidence}"
             )
     lines.append("")
 
