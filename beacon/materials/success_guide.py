@@ -32,7 +32,7 @@ from beacon.db.profile import get_skills
 from beacon.market import (
     SNAPSHOT_STALE_DAYS,
     get_family,
-    latest_snapshot,
+    latest_snapshot_any_window,
 )
 from beacon.research.skill_gaps import _normalize_skill
 from beacon.targets import analyze_target_gaps
@@ -309,7 +309,10 @@ def build_guide(
     analysis = analyze_target_gaps(conn)
     gaps = analysis["gaps"]
 
-    snapshot = latest_snapshot(conn, family.key)
+    # Any window — the guide just displays the most recent market read, so a
+    # user who only keeps `--since-days N` snapshots still gets a market section
+    # instead of a spurious "no snapshot yet".
+    snapshot = latest_snapshot_any_window(conn, family.key)
     # Staleness must read the *selected family's* snapshot — a fresh snapshot for
     # a different family must not mask a months-old one for this family.
     market_age = _snapshot_age_days(snapshot.get("captured_at")) if snapshot else None

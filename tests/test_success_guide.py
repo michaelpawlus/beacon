@@ -225,6 +225,18 @@ class TestBuildGuide:
         assert guide["market_age_days"] is not None and guide["market_age_days"] > 90
         assert guide["market_stale"] is True
 
+    def test_windowed_only_snapshot_is_used(self, db):
+        # A family whose only snapshot was captured with --since-days N must
+        # still render a market section, not "No market snapshot yet"
+        # (Codex P2 #r3410545622).
+        conn, _ = db
+        persist_snapshot(
+            conn, build_market_snapshot(conn, "solutions_fde", web=False, since_days=30)
+        )
+        guide = build_guide(conn, family_key="solutions_fde")
+        assert guide["market_snapshot"] is not None
+        assert guide["market_snapshot"]["since_days"] == 30
+
 
 # ── CLI wiring ───────────────────────────────────────────────────────
 

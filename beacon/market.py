@@ -693,6 +693,12 @@ def latest_snapshot(
         ).fetchone()
     if not row:
         return None
+    return _hydrate_snapshot_row(row)
+
+
+def _hydrate_snapshot_row(row) -> dict:
+    """Re-hydrate a ``role_market_snapshots`` row into the dict shape
+    ``build_market_snapshot`` produces."""
     return {
         "id": row["id"],
         "family": row["archetype"],
@@ -712,6 +718,26 @@ def latest_snapshot(
         "direction": row["direction"],
         "diff_vs_previous": _parse_json(row["diff_vs_previous"], None),
     }
+
+
+def latest_snapshot_any_window(conn: sqlite3.Connection, family_key: str) -> dict | None:
+    """The newest persisted snapshot for a family *regardless of the since_days
+    window*.
+
+    ``latest_snapshot`` keeps each ``since_days`` window in its own series so
+    trend diffs never compare mismatched populations. Display surfaces like the
+    success guide don't diff — they just want the most recent market read — so a
+    user who only maintains ``--since-days N`` snapshots shouldn't see "no
+    snapshot yet" because the all-active series happens to be empty."""
+    _ensure_schema(conn)
+    row = conn.execute(
+        "SELECT * FROM role_market_snapshots WHERE archetype = ? "
+        "ORDER BY captured_at DESC, id DESC LIMIT 1",
+        (family_key,),
+    ).fetchone()
+    if not row:
+        return None
+    return _hydrate_snapshot_row(row)
 
 
 def market_snapshot_age_days(conn: sqlite3.Connection) -> int | None:
