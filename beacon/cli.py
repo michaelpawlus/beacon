@@ -5637,6 +5637,97 @@ def career_market(
     print(markdown)
 
 
+@career_app.command("guide")
+def career_guide(
+    since: str = typer.Option("90d", "--since", help="Win window (YYYY-MM-DD or Nd, default 90d)"),
+    archetype: str = typer.Option(
+        None, "--archetype", "-a",
+        help="Role family for the market section (default: solutions_fde)",
+    ),
+    refresh: bool = typer.Option(
+        False, "--refresh",
+        help="Re-sync aspirational target gaps into skill_gaps before assembling",
+    ),
+    vault: bool = typer.Option(
+        False, "--vault", help="Write the guide to the Obsidian vault via oj capture",
+    ),
+    output: str = typer.Option(None, "--output", "-o", help="Write the guide to a local path"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Assemble the living FDE success guide from wins, target gaps, market
+    direction, and your reading queue — what you're strong at and where to spend
+    more time. Deterministic; degrades gracefully when source tables are empty."""
+    from beacon.market import get_family
+    from beacon.materials.success_guide import build_guide, render_guide_markdown
+    from beacon.targets import analyze_target_gaps, sync_target_gaps
+
+    try:
+        get_family(archetype)
+    except ValueError as e:
+        if as_json:
+            _json_out({"error": str(e), "code": 1})
+        else:
+            _print(f"[red]✗[/red] {e}" if HAS_RICH else f"✗ {e}")
+        raise typer.Exit(1)
+
+    conn = get_connection()
+
+    if refresh:
+        # Pull the latest aspirational demand into skill_gaps so the guide's
+        # gaps + recommendations reflect the current target board.
+        analysis = analyze_target_gaps(conn)
+        sync_target_gaps(conn, analysis["gaps"])
+
+    guide = build_guide(conn, since=since, family_key=archetype)
+    markdown = render_guide_markdown(guide)
+
+    result = {
+        "generated_at": guide["generated_at"],
+        "since": guide["since"],
+        "family": guide["family"],
+        "win_count": guide["win_count"],
+        "strength_count": len(guide["strengths"]),
+        "gap_count": len(guide["gaps"]),
+        "market_stale": guide["market_stale"],
+        "recommendations": guide["recommendations"],
+    }
+
+    if output:
+        Path(output).write_text(markdown)
+        result["path"] = output
+
+    if vault:
+        try:
+            info = _capture_to_vault(
+                body=markdown,
+                folder="Job Search/Success Guide",
+                title=f"{datetime.now().strftime('%Y-%m-%d')}-fde-success-guide",
+                fm_type="success-guide",
+                company=(guide.get("role") or {}).get("company", ""),
+                role=(guide.get("role") or {}).get("title", ""),
+                extra_tags=["success-guide", "career", "fde"],
+            )
+            result["vault_path"] = info.get("path")
+        except RuntimeError as e:
+            result["error"] = str(e)
+
+    conn.close()
+
+    if as_json:
+        result["markdown"] = markdown
+        _json_out(result)
+        return
+
+    if not output and not vault:
+        print(markdown)
+    else:
+        for key in ("path", "vault_path"):
+            if result.get(key):
+                _print(f"Success guide written: {result[key]}")
+        if result.get("error"):
+            _print(f"[red]✗[/red] {result['error']}" if HAS_RICH else f"✗ {result['error']}")
+
+
 # ── Interview Story Bank (#30) ─────────────────────────────────────────
 
 
