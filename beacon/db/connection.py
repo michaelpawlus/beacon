@@ -110,6 +110,48 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         )"""
     )
 
+    _backfill_posture(conn)
+
+
+def _backfill_posture(conn: sqlite3.Connection) -> None:
+    """Stamp `ai_posture` on rows that predate the column (#46).
+
+    On an upgraded DB the ALTER above adds `ai_posture` as NULL for existing
+    rows. Companies wait for the next `beacon scores`, and pending
+    `discovery_candidates` re-surfaced by a source hit the dedupe `continue`
+    before classification — so without this, `--posture` filters silently hide
+    those rows. Idempotent: only touches rows still NULL.
+    """
+    import json
+
+    from beacon.research.posture import classify_candidate, classify_company
+
+    company_ids = [
+        r["id"] for r in conn.execute(
+            "SELECT id FROM companies WHERE ai_posture IS NULL"
+        ).fetchall()
+    ]
+    for cid in company_ids:
+        res = classify_company(conn, cid)
+        conn.execute(
+            "UPDATE companies SET ai_posture = ?, posture_confidence = ? WHERE id = ?",
+            (res.posture, res.confidence, cid),
+        )
+
+    cand_rows = conn.execute(
+        "SELECT id, signals_json FROM discovery_candidates WHERE ai_posture IS NULL"
+    ).fetchall()
+    for row in cand_rows:
+        try:
+            signals = json.loads(row["signals_json"]) if row["signals_json"] else []
+        except (json.JSONDecodeError, TypeError):
+            signals = []
+        res = classify_candidate(signals)
+        conn.execute(
+            "UPDATE discovery_candidates SET ai_posture = ? WHERE id = ?",
+            (res.posture, row["id"]),
+        )
+
 
 def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str, col_type: str) -> None:
     """Add a column to a table if it doesn't already exist."""

@@ -154,3 +154,37 @@ def test_as_dict_shape():
         "ai_posture", "posture_confidence", "native_score",
         "forward_score", "evidence_count", "circle_back",
     }
+
+
+# ----- migration backfill (#46): upgraded DBs must not hide NULL-posture rows -----
+
+def test_backfill_posture_stamps_null_rows(tmp_path):
+    import json
+
+    from beacon.db.connection import _backfill_posture
+
+    init_db(tmp_path / "b.db")
+    conn = get_connection(tmp_path / "b.db")
+    cid = conn.execute("INSERT INTO companies (name) VALUES ('Upgraded Co')").lastrowid
+    conn.executemany(
+        "INSERT INTO ai_signals (company_id, signal_type, title, signal_strength) VALUES (?,?,?,?)",
+        [(cid, "company_policy", "mandate", 4), (cid, "tool_mandate", "rollout", 4)],
+    )
+    conn.execute(
+        "INSERT INTO discovery_candidates (source, source_ref, name, signals_json) VALUES ('yaml','x','Cand', ?)",
+        (json.dumps([{"signal_type": "product_integration", "signal_strength": 5}]),),
+    )
+    # Simulate the pre-#46 state: columns exist (migration added them) but NULL.
+    conn.execute("UPDATE companies SET ai_posture = NULL, posture_confidence = NULL")
+    conn.execute("UPDATE discovery_candidates SET ai_posture = NULL")
+    conn.commit()
+
+    _backfill_posture(conn)
+    conn.commit()
+
+    co = conn.execute("SELECT ai_posture, posture_confidence FROM companies WHERE id=?", (cid,)).fetchone()
+    cand = conn.execute("SELECT ai_posture FROM discovery_candidates WHERE name='Cand'").fetchone()
+    conn.close()
+    assert co["ai_posture"] == "ai_forward"
+    assert co["posture_confidence"] is not None
+    assert cand["ai_posture"] == "ai_native"
