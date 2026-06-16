@@ -8,13 +8,38 @@ SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 
 def get_connection(db_path: Path | str | None = None) -> sqlite3.Connection:
-    """Get a database connection with row factory enabled."""
+    """Get a database connection with row factory enabled.
+
+    Self-heals an already-initialized DB to the latest schema (see
+    `_ensure_migrated`) so commands that open a bare connection — rather than
+    going through `init_db()` — don't trip over columns added by a later
+    release (e.g. `ai_posture`, #46) on an upgraded-but-not-reinitialized DB.
+    """
     path = Path(db_path) if db_path else DEFAULT_DB_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    _ensure_migrated(conn)
     return conn
+
+
+def _ensure_migrated(conn: sqlite3.Connection) -> None:
+    """Idempotently bring an *already-initialized* DB up to the latest schema.
+
+    A brand-new DB has no `companies` table yet — `init_db()` owns full setup
+    there, so skip until it exists (and to avoid ALTERing tables that aren't
+    created yet). On a steady-state DB every migration is a no-op, so this adds
+    only a cheap sqlite_master lookup per connection; the one upgrade run that
+    adds columns + backfills posture is committed so later reads see it.
+    """
+    initialized = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='companies'"
+    ).fetchone()
+    if not initialized:
+        return
+    _run_migrations(conn)
+    conn.commit()
 
 
 def init_db(db_path: Path | str | None = None) -> None:

@@ -191,13 +191,15 @@ def test_peers_lists_same_posture_with_job_counts(temp_db):
     assert payload["peers"][0]["active_jobs"] == 1
 
 
-def test_peers_no_posture_errors(temp_db):
+def test_peers_unscored_company_is_backfilled(temp_db):
+    """A company inserted without a posture is backfilled (→ ai_curious) by
+    get_connection's self-heal, so peers resolves a posture instead of erroring."""
     conn = sqlite3.connect(str(temp_db))
     conn.execute("INSERT INTO companies (name) VALUES ('Unscored Co')")
     conn.commit()
     conn.close()
-    result = _run(["companies", "peers", "Unscored Co", "--json"], expect_exit=1)
-    assert json.loads(result.stdout)["code"] == 1
+    payload = json.loads(_run(["companies", "peers", "Unscored Co", "--json"]).stdout)
+    assert payload["target"]["ai_posture"] == "ai_curious"
 
 
 def test_peers_missing_company_exits_2(temp_db):
