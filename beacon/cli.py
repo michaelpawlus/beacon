@@ -874,8 +874,17 @@ def companies_peers(
             _stderr(msg)
         raise typer.Exit(2)
 
-    # ai_posture is always populated — get_connection() backfills it on an
-    # already-initialized DB — so we can filter peers on it directly.
+    if not target["ai_posture"]:
+        # Bare-inserted companies (e.g. `target add`) carry no posture until the
+        # next scoring pass — same as ai_first_score defaulting to 0.
+        conn.close()
+        msg = f"{target['name']} has no posture yet — run `beacon scores --company \"{target['name']}\"` first"
+        if as_json:
+            _json_out({"error": msg, "code": 1})
+        else:
+            _stderr(msg)
+        raise typer.Exit(1)
+
     query = (
         "SELECT c.*, "
         "(SELECT COUNT(*) FROM job_listings j WHERE j.company_id = c.id AND j.status = 'active') AS active_jobs "
