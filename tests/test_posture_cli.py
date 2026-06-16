@@ -191,6 +191,39 @@ def test_peers_lists_same_posture_with_job_counts(temp_db):
     assert payload["peers"][0]["active_jobs"] == 1
 
 
+def test_peers_same_industry_filters(temp_db):
+    conn = sqlite3.connect(str(temp_db))
+    conn.executemany(
+        "INSERT INTO companies (name, ai_posture, ai_first_score, industry) VALUES (?,?,?,?)",
+        [
+            ("Fin A", "ai_forward", 7.0, "Finance"),
+            ("Fin B", "ai_forward", 6.0, "Finance"),
+            ("Retail C", "ai_forward", 8.0, "Retail"),
+        ],
+    )
+    conn.commit()
+    conn.close()
+    payload = json.loads(_run(["companies", "peers", "Fin A", "--same-industry", "--json"]).stdout)
+    assert payload["same_industry"] is True
+    assert [p["name"] for p in payload["peers"]] == ["Fin B"]  # Retail C excluded
+
+
+def test_peers_same_industry_unknown_industry_errors(temp_db):
+    """--same-industry on a target with no industry must fail, not silently
+    return cross-industry peers under same_industry=true."""
+    conn = sqlite3.connect(str(temp_db))
+    conn.execute(
+        "INSERT INTO companies (name, ai_posture, ai_first_score) VALUES ('No Industry Co','ai_forward',5.0)"
+    )
+    conn.execute(
+        "INSERT INTO companies (name, ai_posture, ai_first_score, industry) VALUES ('Other Co','ai_forward',6.0,'Retail')"
+    )
+    conn.commit()
+    conn.close()
+    result = _run(["companies", "peers", "No Industry Co", "--same-industry", "--json"], expect_exit=1)
+    assert json.loads(result.stdout)["code"] == 1
+
+
 def test_peers_unscored_company_errors(temp_db):
     """A bare company with no posture yet (NULL until `beacon scores`) errors
     with a helpful nudge rather than running an `ai_posture = NULL` query."""

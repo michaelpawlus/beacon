@@ -885,13 +885,24 @@ def companies_peers(
             _stderr(msg)
         raise typer.Exit(1)
 
+    if same_industry and not target["industry"]:
+        # Can't honor an industry filter we have no industry for — fail loudly
+        # rather than silently returning cross-industry peers under same_industry.
+        conn.close()
+        msg = f"{target['name']} has no industry recorded — can't filter peers by industry"
+        if as_json:
+            _json_out({"error": msg, "code": 1})
+        else:
+            _stderr(msg)
+        raise typer.Exit(1)
+
     query = (
         "SELECT c.*, "
         "(SELECT COUNT(*) FROM job_listings j WHERE j.company_id = c.id AND j.status = 'active') AS active_jobs "
         "FROM companies c WHERE c.ai_posture = ? AND c.id != ?"
     )
     params: list = [target["ai_posture"], target["id"]]
-    if same_industry and target["industry"]:
+    if same_industry:
         query += " AND c.industry = ?"
         params.append(target["industry"])
     query += " ORDER BY active_jobs DESC, c.ai_first_score DESC LIMIT ?"
