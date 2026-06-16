@@ -21,6 +21,7 @@ import re
 import sqlite3
 from collections.abc import Iterable
 
+from beacon.research.posture import AI_CURIOUS, PostureResult, classify_candidate
 from beacon.sources.base import Candidate
 
 # ----- Scoring -----
@@ -32,17 +33,22 @@ SOURCE_WEIGHTS: dict[str, float] = {
 }
 
 
-def score_candidate(candidate: Candidate) -> float:
+def score_candidate(candidate: Candidate, posture: PostureResult | None = None) -> float:
     """Compute a discovery score for a candidate.
 
     Higher = more evidence + more curation. Used to sort candidates so the
     most promotable ones surface first in `beacon companies candidates`.
 
-    Breakdown (max ~10):
+    Breakdown (max ~11):
       • +source weight (0–1.5)
       • +1 per attached signal (capped at 5)
       • +0.5 for each of: domain, careers_url, industry, hq_location
       • +1.0 if signals include any with `strength >= 4`
+      • +1.0 if the candidate has a clear posture (ai_native *or* ai_forward)
+
+    The posture bonus (#46) keeps AI-forward candidates — strong company-wide
+    adoption but no AI product — from being drowned out by the AI-native crowd:
+    a clear forward posture earns the same lift as a clear native one.
     """
     score = SOURCE_WEIGHTS.get(candidate.source, 1.0)
 
@@ -63,6 +69,11 @@ def score_candidate(candidate: Candidate) -> float:
         for s in candidate.signals
     )
     if has_strong_signal:
+        score += 1.0
+
+    if posture is None:
+        posture = classify_candidate(candidate.signals)
+    if posture.posture != AI_CURIOUS:
         score += 1.0
 
     return round(score, 2)
@@ -167,18 +178,20 @@ def upsert_candidates(
             })
             continue
 
+        posture = classify_candidate(cand.signals)
         row = cand.to_row()
-        row["discovery_score"] = score_candidate(cand)
+        row["discovery_score"] = score_candidate(cand, posture)
+        row["ai_posture"] = posture.posture
 
         if not dry_run:
             cursor = conn.execute(
                 """
                 INSERT INTO discovery_candidates
                     (source, source_ref, name, domain, careers_url, hq_location,
-                     industry, signals_json, raw_json, discovery_score)
+                     industry, signals_json, raw_json, discovery_score, ai_posture)
                 VALUES (:source, :source_ref, :name, :domain, :careers_url,
                         :hq_location, :industry, :signals_json, :raw_json,
-                        :discovery_score)
+                        :discovery_score, :ai_posture)
                 """,
                 row,
             )
@@ -190,6 +203,7 @@ def upsert_candidates(
             "source_ref": cand.source_ref,
             "domain": cand.domain,
             "discovery_score": row["discovery_score"],
+            "ai_posture": posture.posture,
             "signal_count": len(cand.signals),
         })
 

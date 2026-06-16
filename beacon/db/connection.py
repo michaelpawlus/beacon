@@ -6,23 +6,71 @@ from pathlib import Path
 DEFAULT_DB_PATH = Path(__file__).parent.parent.parent / "data" / "beacon.db"
 SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
+# Bump when schema.sql or _run_migrations change. Connections fast-skip the
+# self-heal once a DB records this version in PRAGMA user_version, so the hot
+# path stays a single PRAGMA read.
+SCHEMA_VERSION = 1
+
 
 def get_connection(db_path: Path | str | None = None) -> sqlite3.Connection:
-    """Get a database connection with row factory enabled."""
+    """Get a database connection with row factory enabled.
+
+    Self-heals an already-initialized DB to the latest schema (see
+    `_ensure_migrated`) so commands that open a bare connection — rather than
+    going through `init_db()` — don't trip over columns added by a later
+    release (e.g. `ai_posture`, #46) on an upgraded-but-not-reinitialized DB.
+    """
     path = Path(db_path) if db_path else DEFAULT_DB_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    _ensure_migrated(conn)
     return conn
+
+
+def _ensure_migrated(conn: sqlite3.Connection) -> None:
+    """Idempotently bring an *already-initialized* DB up to the latest schema.
+
+    A brand-new DB has no `companies` table yet — `init_db()` owns first setup
+    there, so skip until it exists. Otherwise, when the DB is behind
+    `SCHEMA_VERSION`, apply the schema (see `_apply_schema`) and stamp the
+    version. A steady-state DB pays only the sqlite_master + user_version reads.
+    """
+    initialized = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='companies'"
+    ).fetchone()
+    if not initialized:
+        return
+    if conn.execute("PRAGMA user_version").fetchone()[0] >= SCHEMA_VERSION:
+        return
+    _apply_schema(conn)
+    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+    conn.commit()
+
+
+def _apply_schema(conn: sqlite3.Connection) -> None:
+    """Bring a DB to the current schema in a column-safe order.
+
+    Order matters for upgrading a partial/old DB:
+      1. ALTER in missing columns first (skipping tables that don't exist yet),
+         so schema.sql indexes that reference newer columns (e.g.
+         `discovery_candidates(discovery_score)`) don't fail.
+      2. `executescript(schema.sql)` — create any missing core tables + indexes
+         (every migration-added column is present in schema.sql, so a freshly
+         created table is complete).
+      3. backfill derived data (posture) once all tables/columns exist.
+    """
+    _run_migrations(conn)
+    conn.executescript(SCHEMA_PATH.read_text())
+    _backfill_posture(conn)
 
 
 def init_db(db_path: Path | str | None = None) -> None:
     """Initialize the database with the schema."""
     conn = get_connection(db_path)
-    schema = SCHEMA_PATH.read_text()
-    conn.executescript(schema)
-    _run_migrations(conn)
+    _apply_schema(conn)
+    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.commit()
     conn.close()
 
@@ -33,6 +81,10 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
     _add_column_if_missing(conn, "job_listings", "archetype", "TEXT")
     _add_column_if_missing(conn, "job_listings", "archetype_confidence", "REAL")
     _add_column_if_missing(conn, "discovery_candidates", "discovery_score", "REAL DEFAULT 0")
+    # AI posture (#46): native / forward / curious, derived from the signal mix.
+    _add_column_if_missing(conn, "companies", "ai_posture", "TEXT")
+    _add_column_if_missing(conn, "companies", "posture_confidence", "REAL")
+    _add_column_if_missing(conn, "discovery_candidates", "ai_posture", "TEXT")
     conn.executescript(
         """CREATE TABLE IF NOT EXISTS role_targets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -107,10 +159,70 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
     )
 
 
+def _backfill_posture(conn: sqlite3.Connection) -> None:
+    """Stamp `ai_posture` on rows that predate the column (#46).
+
+    On an upgraded DB the ALTER above adds `ai_posture` as NULL for existing
+    rows. Companies wait for the next `beacon scores`, and pending
+    `discovery_candidates` re-surfaced by a source hit the dedupe `continue`
+    before classification — so without this, `--posture` filters silently hide
+    those rows. Idempotent: only touches rows still NULL.
+    """
+    import json
+
+    from beacon.research.posture import classify_candidate, classify_company
+    from beacon.sources.base import Candidate
+    from beacon.sources.dedupe import score_candidate
+
+    company_ids = [
+        r["id"] for r in conn.execute(
+            "SELECT id FROM companies WHERE ai_posture IS NULL"
+        ).fetchall()
+    ]
+    for cid in company_ids:
+        res = classify_company(conn, cid)
+        conn.execute(
+            "UPDATE companies SET ai_posture = ?, posture_confidence = ? WHERE id = ?",
+            (res.posture, res.confidence, cid),
+        )
+
+    cand_rows = conn.execute(
+        "SELECT * FROM discovery_candidates WHERE ai_posture IS NULL"
+    ).fetchall()
+    for row in cand_rows:
+        try:
+            signals = json.loads(row["signals_json"]) if row["signals_json"] else []
+        except (json.JSONDecodeError, TypeError):
+            signals = []
+        res = classify_candidate(signals)
+        # Recompute discovery_score too: score_candidate() now folds in a
+        # clear-posture bonus, and dedupe skips these rows on re-discovery, so
+        # without this they'd stay permanently under-ranked in `candidates`.
+        cand = Candidate(
+            name=row["name"],
+            source=row["source"],
+            source_ref=row["source_ref"],
+            domain=row["domain"],
+            careers_url=row["careers_url"],
+            hq_location=row["hq_location"],
+            industry=row["industry"],
+            signals=signals,
+        )
+        conn.execute(
+            "UPDATE discovery_candidates SET ai_posture = ?, discovery_score = ? WHERE id = ?",
+            (res.posture, score_candidate(cand, res), row["id"]),
+        )
+
+
 def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str, col_type: str) -> None:
-    """Add a column to a table if it doesn't already exist."""
+    """Add a column to a table if it doesn't already exist.
+
+    No-ops when the table itself doesn't exist yet (PRAGMA returns no rows), so
+    running migrations against an older partial schema can't raise
+    'no such table' before the schema has created it.
+    """
     cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
-    if column not in cols:
+    if cols and column not in cols:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
 
 

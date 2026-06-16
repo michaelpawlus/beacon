@@ -585,6 +585,49 @@ SEED_COMPANIES = [
         "tier": 2,
         "description": "Uses Claude Code for drug discovery. Reports 10x faster project delivery, AI suggesting test scenarios developers overlooked.",
     },
+
+    # === AI-FORWARD: established companies, not AI-native products, but
+    # company-wide AI adoption with leadership behind it (#46). These surface
+    # via `beacon companies --posture ai_forward`. ===
+    {
+        "name": "Scotts Miracle-Gro",
+        "domain": "scottsmiraclegro.com",
+        "careers_url": "https://jobs.scotts.com",
+        "careers_platform": "workday",
+        "hq_location": "Marysville, OH",
+        "remote_policy": "hybrid",
+        "size_bucket": "large-1000-5000",
+        "industry": "Consumer / Lawn & Garden",
+        "founded_year": 1868,
+        "tier": 3,
+        "description": "150+ year-old consumer goods company, not an AI product company — but with leadership-backed, company-wide AI adoption (hiring, investment, internal case studies). The canonical AI-forward profile.",
+    },
+    {
+        "name": "Moderna",
+        "domain": "modernatx.com",
+        "careers_url": "https://www.modernatx.com/careers",
+        "careers_platform": "workday",
+        "hq_location": "Cambridge, MA",
+        "remote_policy": "hybrid",
+        "size_bucket": "large-1000-5000",
+        "industry": "Biotechnology / Pharma",
+        "founded_year": 2010,
+        "tier": 3,
+        "description": "Biotech, not an AI company — but deployed ChatGPT Enterprise company-wide and made AI fluency a baseline expectation. Textbook AI-forward adopter.",
+    },
+    {
+        "name": "JPMorgan Chase",
+        "domain": "jpmorganchase.com",
+        "careers_url": "https://careers.jpmorgan.com",
+        "careers_platform": "custom",
+        "hq_location": "New York, NY",
+        "remote_policy": "onsite",
+        "size_bucket": "enterprise-5000+",
+        "industry": "Financial Services / Banking",
+        "founded_year": 2000,
+        "tier": 3,
+        "description": "Global bank, not an AI product company — but rolled an internal LLM Suite to 200k+ employees with sustained CEO-level investment. AI-forward at enterprise scale.",
+    },
 ]
 
 
@@ -871,6 +914,41 @@ SEED_LEADERSHIP_SIGNALS = [
         "source_url": "https://www.anthropic.com/news/claude-for-life-sciences",
         "date_observed": "2025-08-01",
         "impact_level": "engineering",
+    },
+
+    # === AI-FORWARD adopters (#46) ===
+    # Scotts Miracle-Gro
+    {
+        "company_name": "Scotts Miracle-Gro",
+        "leader_name": "Scotts Miracle-Gro Leadership",
+        "leader_title": "Executive Leadership",
+        "signal_type": "policy",
+        "content": "Leadership has aligned the company around AI adoption — investing in tooling, hiring for AI-literate roles, and circulating internal case studies of AI wins across functions.",
+        "source_url": "https://scottsmiraclegro.com",
+        "date_observed": "2026-03-01",
+        "impact_level": "company-wide",
+    },
+    # Moderna
+    {
+        "company_name": "Moderna",
+        "leader_name": "Stephane Bancel",
+        "leader_title": "CEO",
+        "signal_type": "interview",
+        "content": "We expect every employee to use AI. We deployed ChatGPT Enterprise across the company and built hundreds of internal GPTs — AI fluency is a baseline expectation, not an experiment.",
+        "source_url": "https://openai.com/index/moderna",
+        "date_observed": "2025-05-01",
+        "impact_level": "company-wide",
+    },
+    # JPMorgan Chase
+    {
+        "company_name": "JPMorgan Chase",
+        "leader_name": "Jamie Dimon",
+        "leader_title": "CEO",
+        "signal_type": "memo",
+        "content": "AI is going to be transformative. We have thousands of people working on it and an internal LLM Suite now in the hands of more than 200,000 employees — sustained, top-down investment.",
+        "source_url": "https://www.jpmorganchase.com/technology",
+        "date_observed": "2025-04-01",
+        "impact_level": "company-wide",
     },
 ]
 
@@ -1579,6 +1657,70 @@ SEED_AI_SIGNALS = [
         "signal_strength": 5,
         "date_observed": "2025-08-01",
     },
+
+    # === AI-FORWARD adopters (#46) — company-wide adoption, no AI product ===
+    # Scotts Miracle-Gro
+    {
+        "company_name": "Scotts Miracle-Gro",
+        "signal_type": "company_policy",
+        "title": "Leadership-backed company-wide push on AI adoption",
+        "source_url": "https://scottsmiraclegro.com",
+        "source_name": "Scotts Miracle-Gro",
+        "excerpt": "Investment in AI tooling, hiring for AI-literate roles, and internal case studies circulated across functions.",
+        "signal_strength": 4,
+        "date_observed": "2026-03-01",
+    },
+    {
+        "company_name": "Scotts Miracle-Gro",
+        "signal_type": "employee_report",
+        "title": "Teams report AI woven into day-to-day workflows",
+        "source_name": "Scotts Miracle-Gro",
+        "excerpt": "Employees describe AI as part of normal work — not a pilot — across analytics, marketing, and operations.",
+        "signal_strength": 3,
+        "date_observed": "2026-04-01",
+    },
+    # Moderna
+    {
+        "company_name": "Moderna",
+        "signal_type": "tool_mandate",
+        "title": "ChatGPT Enterprise deployed company-wide; AI use expected of all employees",
+        "source_url": "https://openai.com/index/moderna",
+        "source_name": "OpenAI",
+        "excerpt": "Moderna rolled ChatGPT Enterprise to the whole company and built hundreds of internal GPTs; AI fluency is a baseline expectation.",
+        "signal_strength": 5,
+        "date_observed": "2025-05-01",
+    },
+    {
+        "company_name": "Moderna",
+        "signal_type": "company_policy",
+        "title": "AI fluency made a baseline job expectation",
+        "source_url": "https://openai.com/index/moderna",
+        "source_name": "OpenAI",
+        "excerpt": "Performance expectations now include effective use of AI across functions.",
+        "signal_strength": 4,
+        "date_observed": "2025-05-01",
+    },
+    # JPMorgan Chase
+    {
+        "company_name": "JPMorgan Chase",
+        "signal_type": "tool_mandate",
+        "title": "Internal LLM Suite rolled out to 200,000+ employees",
+        "source_url": "https://www.jpmorganchase.com/technology",
+        "source_name": "JPMorgan Chase",
+        "excerpt": "A firm-wide generative-AI assistant (LLM Suite) put in the hands of more than 200k employees.",
+        "signal_strength": 5,
+        "date_observed": "2025-04-01",
+    },
+    {
+        "company_name": "JPMorgan Chase",
+        "signal_type": "press_coverage",
+        "title": "Multi-billion-dollar annual AI/technology investment",
+        "source_url": "https://www.jpmorganchase.com/technology",
+        "source_name": "JPMorgan Chase",
+        "excerpt": "Sustained, CEO-level investment in AI across the bank's operations.",
+        "signal_strength": 4,
+        "date_observed": "2025-04-01",
+    },
 ]
 
 
@@ -1736,6 +1878,18 @@ SEED_TOOLS = [
     {"company_name": "Schrodinger", "tool_name": "Claude Code", "adoption_level": "required",
      "evidence_url": "https://www.anthropic.com/news/claude-for-life-sciences",
      "date_observed": "2025-08-01"},
+    # === AI-FORWARD adopters (#46) ===
+    # Scotts Miracle-Gro
+    {"company_name": "Scotts Miracle-Gro", "tool_name": "ChatGPT Enterprise", "adoption_level": "encouraged",
+     "date_observed": "2026-03-01"},
+    {"company_name": "Scotts Miracle-Gro", "tool_name": "Microsoft Copilot", "adoption_level": "encouraged",
+     "date_observed": "2026-03-01"},
+    # Moderna
+    {"company_name": "Moderna", "tool_name": "ChatGPT Enterprise", "adoption_level": "required",
+     "evidence_url": "https://openai.com/index/moderna", "date_observed": "2025-05-01"},
+    # JPMorgan Chase
+    {"company_name": "JPMorgan Chase", "tool_name": "LLM Suite", "adoption_level": "encouraged",
+     "evidence_url": "https://www.jpmorganchase.com/technology", "date_observed": "2025-04-01"},
 ]
 
 

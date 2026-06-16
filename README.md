@@ -27,7 +27,7 @@ git clone https://github.com/michaelpawlus/beacon.git
 cd beacon
 pip install -e .
 
-# Initialize database with seed data (38 companies)
+# Initialize database with seed data (47 companies)
 beacon init
 
 # List all companies by AI-first score
@@ -183,7 +183,7 @@ Cover letters incorporate Phase 1 research — leadership signals, AI culture ev
 
 ## Current Data
 
-The seed dataset includes 38 companies across four tiers:
+The seed dataset includes 47 companies across four tiers, classified by AI posture (native / forward / curious):
 
 | Tier | Description | Example Companies |
 |------|-------------|-------------------|
@@ -191,6 +191,8 @@ The seed dataset includes 38 companies across four tiers:
 | 🔵 Tier 2 | AI-First Converts | Shopify (Tobi's mandate), Klarna, Duolingo |
 | 🟡 Tier 3 | Strong Adoption | Stripe, Notion, GitLab, Ramp, Scale AI |
 | ⚪ Tier 4 | Emerging Signals | DoorDash, Brex, Together AI, Hex |
+
+It also seeds **AI-forward** employers — established companies that don't build AI products but have leadership-backed, company-wide AI adoption (Scotts Miracle-Gro, Moderna, JPMorgan Chase). Filter by posture with `beacon companies --posture ai_forward`.
 
 ## Scoring
 

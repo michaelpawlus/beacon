@@ -209,10 +209,17 @@ def refresh_score(conn: sqlite3.Connection, company_id: int) -> float:
         ),
     )
 
+    # Derive the AI posture (native / forward / curious) from the same evidence
+    # and stamp it on the company alongside the composite score (#46).
+    from beacon.research.posture import classify_company
+
+    posture = classify_company(conn, company_id)
+
     # Update the main company table
     conn.execute(
-        "UPDATE companies SET ai_first_score = ?, updated_at = datetime('now') WHERE id = ?",
-        (scores["composite_score"], company_id),
+        "UPDATE companies SET ai_first_score = ?, ai_posture = ?, posture_confidence = ?, "
+        "updated_at = datetime('now') WHERE id = ?",
+        (scores["composite_score"], posture.posture, posture.confidence, company_id),
     )
     conn.commit()
     return scores["composite_score"]

@@ -171,3 +171,46 @@ companies:
       - signal_type: leadership_statement
         title: Building agents that reason; large funding round
         signal_strength: 3
+
+  # --- AI-FORWARD exemplars (#46): established, non-AI-native companies whose
+  # signal mix is company-wide *adoption* (company_policy / tool_mandate /
+  # company-wide leadership), not an AI product. These should classify as
+  # ai_forward and surface in `beacon companies candidates --posture ai_forward`.
+  - name: John Deere
+    domain: deere.com
+    careers_url: https://careers.deere.com
+    hq_location: Moline, IL
+    industry: Agriculture / Industrial Equipment
+    signals:
+      - signal_type: company_policy
+        title: Company-wide push to embed AI across engineering and operations
+        signal_strength: 4
+      - signal_type: leadership_statement
+        title: Leadership frames AI as core to the next decade of precision agriculture
+        signal_strength: 3
+
+  - name: Mastercard
+    domain: mastercard.com
+    careers_url: https://careers.mastercard.com
+    hq_location: Purchase, NY
+    industry: Financial Services / Payments
+    signals:
+      - signal_type: tool_mandate
+        title: Internal generative-AI assistant rolled out broadly to employees
+        signal_strength: 4
+      - signal_type: employee_report
+        title: Staff report AI tooling embedded in day-to-day workflows
+        signal_strength: 3
+
+  - name: Unilever
+    domain: unilever.com
+    careers_url: https://careers.unilever.com
+    hq_location: London, UK
+    industry: Consumer Goods
+    signals:
+      - signal_type: company_policy
+        title: Enterprise-wide AI adoption program with executive sponsorship
+        signal_strength: 4
+      - signal_type: employee_report
+        title: Marketing and supply-chain teams report AI embedded in daily work
+        signal_strength: 3

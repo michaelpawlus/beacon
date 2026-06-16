@@ -9,7 +9,7 @@ Beacon is a **tool for the agent** — Claude Code is the intelligence layer. Be
 ## Quick Start
 
 ```bash
-# First-time setup (seeds 38 AI-first companies)
+# First-time setup (seeds 47 AI-first & AI-forward companies)
 beacon init
 
 # Run tests
@@ -103,8 +103,8 @@ file-write, no LLM round-trip.
 
 | Command | Description | Key Flags |
 |---------|-------------|-----------|
-| `beacon init [--seed]` | Initialize DB, optionally seed 38 companies | `--seed` (default true) |
-| `beacon companies` | List companies by AI-first score | `--tier N` `--min-score N` `--tools TEXT` `--limit N` `--json` |
+| `beacon init [--seed]` | Initialize DB, optionally seed 47 companies | `--seed` (default true) |
+| `beacon companies` | List companies by AI-first score | `--tier N` `--min-score N` `--tools TEXT` `--posture KEY` `--limit N` `--json` |
 | `beacon show <name>` | Detailed company view (signals, tools, jobs) | `--json` |
 | `beacon scores` | Recompute company scores. Bare command refreshes all; flags scope the recompute | `--since DAYS` `--company NAME` `--quiet` `--json` |
 | `beacon stats` | Database statistics | `--json` |
@@ -124,17 +124,23 @@ The subcommands drive the pluggable discovery pipeline.
 |---------|-------------|-----------|
 | `beacon companies sources` | List registered discovery adapters with last-run + pending counts | `--json` |
 | `beacon companies discover` | Fetch candidates from a source, dedupe, write to `discovery_candidates` | `--source NAME` `--limit N` `--dry-run` `--curated-dir PATH` (yaml only) `--json` |
-| `beacon companies candidates` | List discovery candidates ranked by evidence-weighted score | `--source NAME` `--status pending\|promoted\|rejected\|all` `--limit N` `--json` |
-| `beacon companies promote <id>` | Move a candidate into `companies` + copy signals into `ai_signals` | `--tier N` (default 4) `--json` |
+| `beacon companies candidates` | List discovery candidates ranked by evidence-weighted score | `--source NAME` `--status pending\|promoted\|rejected\|all` `--posture ai_native\|ai_forward\|ai_curious` `--limit N` `--json` |
+| `beacon companies promote <id>` | Move a candidate into `companies` + copy signals into `ai_signals` (stamps a derived posture) | `--tier N` (default 4) `--json` |
 | `beacon companies reject <id>` | Mark a candidate rejected so it isn't re-surfaced | `--reason TEXT` `--json` |
+| `beacon companies evidence <name>` | Log a piece of AI-posture evidence (a "story") for a company; auto-creates a tier-4 tracked company if new, then re-derives posture | `--title TEXT` `--type SIGNAL_TYPE` `--strength 1-5` `--url TEXT` `--date DATE` `--leader TEXT --leader-title TEXT --impact LEVEL` `--tool TEXT --adoption LEVEL` `--no-create` `--json` |
+| `beacon companies peers <name>` | List like companies (same AI posture) with their open-role counts — role benchmarking against similar employers | `--same-industry` `--limit N` `--json` |
 | `beacon companies diff` | Window diff of the company universe — new companies + role-count deltas | `--since DATE\|Nd\|last-week` `--tier N` `--min-score F` `--include-closed` `--limit N` `--json` |
 | `beacon companies refresh-signals` | Re-fetch evidence for known companies (stalest-first) so recency scores don't silently rot | `--since DAYS` (default 90) `--company NAME` `--tier N` `--source NAME` `--limit N` (default 50) `--dry-run` `--json` |
+
+`beacon companies` (the bare list) gains a `--posture ai_native\|ai_forward\|ai_curious` filter and renders a Posture column.
 
 **Sources in v0.1:**
 - `yaml` — curated feed at `beacon/sources/curated/*.yml` (always available, no auth)
 - `crunchbase` — Crunchbase v4 API; requires `CRUNCHBASE_API_KEY` env var; respects free-tier QPS with sleep + jitter
 
-**Discovery scoring** (sort order for `candidates`): source weight + signal count (capped at 5) + 0.5 per filled field (domain/careers_url/industry/hq_location) + 1.0 bonus for any signal with strength ≥ 4. Implementation: `beacon/sources/dedupe.py:score_candidate`.
+**Discovery scoring** (sort order for `candidates`): source weight + signal count (capped at 5) + 0.5 per filled field (domain/careers_url/industry/hq_location) + 1.0 bonus for any signal with strength ≥ 4 + 1.0 bonus for a clear posture (ai_native *or* ai_forward, so AI-forward adopters aren't drowned out by AI-native candidates). Implementation: `beacon/sources/dedupe.py:score_candidate`.
+
+**AI posture (`ai_posture`, #46).** Beyond *how AI-first* a company scores, beacon derives *how a company relates to AI* from the same stored signal mix (no new collection) — `ai_native` (the product is AI; `product_integration` dominates), `ai_forward` (no AI product, but company-wide adoption: `company_policy` / `tool_mandate` / `employee_report` signals, `leadership_signals.impact_level = 'company-wide'`, broad `tools_adopted`), or `ai_curious` (sparse/weak evidence — circle back). This is the posture that made beacon miss older AI-*forward* employers like Scotts Miracle-Gro. Classification is deterministic + tunable (weighted sums in `beacon/research/posture.py`): product evidence is near-decisive for native (and isn't flipped by a lab's own internal tool mandates), while the forward call requires *accumulated* adoption evidence (≥2 signals — "one story isn't enough, but it's a reason to circle back"). Posture + `posture_confidence` are stamped on `companies` during `beacon scores` (and on `discovery_candidates` at discover time). Build the AI-forward case incrementally with `beacon companies evidence`; compare similar employers with `beacon companies peers`.
 
 **Dedupe** (skipping policies): hard match on companies.name (case-insensitive), normalized name (alphanumerics-only) fuzzy match, exact domain match, AND a `UNIQUE(source, source_ref)` constraint so rejected candidates never re-surface.
 
@@ -464,6 +470,20 @@ beacon companies candidates --status pending --json | jq '.[0:5]'
 beacon companies promote 7 --tier 3 --json
 beacon companies reject 8 --reason "not actually AI-native" --json
 
+# Surface AI-forward employers (company-wide adoption, no AI product) — #46
+beacon companies --posture ai_forward --json
+beacon companies candidates --posture ai_forward --json
+
+# Build the AI-forward case for an older company one story at a time
+beacon companies evidence "Scotts Miracle-Gro" --type company_policy \
+  --title "Company-wide AI adoption mandate from the CIO" --strength 4 \
+  --leader "Jane Doe" --leader-title CIO --impact company-wide \
+  --tool "ChatGPT Enterprise" --adoption encouraged --json
+# One story → ai_curious (circle back); accumulate ≥2 → ai_forward
+
+# Benchmark roles at like employers (same posture) for comparison
+beacon companies peers "Scotts Miracle-Gro" --json | jq '.peers[] | {name, active_jobs, careers_url}'
+
 # Refresh evidence for companies whose newest signal is >90 days old
 beacon companies refresh-signals --since 90 --limit 25 --json | jq '.totals'
 # Targeted: refresh just one company
@@ -569,8 +589,9 @@ Read commands support composable filters (AND logic):
 - SQLite at `data/beacon.db`
 - Schema in `beacon/db/schema.sql`
 - `job_listings` carries `archetype` + `archetype_confidence` (role archetype classification — see `beacon job archetype`)
+- `companies` carries `ai_posture` + `posture_confidence` (AI-native / AI-forward / AI-curious — see `beacon/research/posture.py`); `discovery_candidates` carries `ai_posture` too
 - Key tables: `companies`, `ai_signals`, `leadership_signals`, `tools_adopted`, `score_breakdown`, `job_listings`, `applications`, `application_outcomes`, `work_experiences`, `projects`, `skills`, `education`, `publications_talks`, `content_drafts`, `content_calendar`, `media_log`, `network_events`, `network_contacts`, `network_contact_events`, `presentations`, `speaker_profile`, `resume_variants`, `automation_log`, `sessions`, `discovery_candidates`, `wins`, `interview_stories`, `role_targets`, `role_fit_snapshots`, `role_dispatches`, `role_market_snapshots`
-- `beacon init` must be run before first use (creates schema + seeds 38 companies)
+- `beacon init` must be run before first use (creates schema + seeds 47 companies)
 
 ## Environment Variables
 

@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS companies (
     founded_year INTEGER,
     description TEXT,
     ai_first_score REAL DEFAULT 0,
+    ai_posture TEXT,            -- ai_native | ai_forward | ai_curious (see beacon/research/posture.py)
+    posture_confidence REAL,   -- 0-1 classifier confidence
     tier INTEGER DEFAULT 4 CHECK(tier BETWEEN 1 AND 4),
     last_researched_at TEXT,
     notes TEXT,
@@ -484,6 +486,7 @@ CREATE TABLE IF NOT EXISTS discovery_candidates (
     signals_json TEXT,                          -- JSON-serialized list[dict]
     raw_json TEXT,                              -- full source record (audit trail)
     discovery_score REAL DEFAULT 0,             -- evidence-weighted ranking score
+    ai_posture TEXT,                            -- ai_native | ai_forward | ai_curious (derived from signals)
     status TEXT NOT NULL DEFAULT 'pending'
         CHECK(status IN ('pending', 'promoted', 'rejected')),
     reject_reason TEXT,
