@@ -150,6 +150,8 @@ def _backfill_posture(conn: sqlite3.Connection) -> None:
     import json
 
     from beacon.research.posture import classify_candidate, classify_company
+    from beacon.sources.base import Candidate
+    from beacon.sources.dedupe import score_candidate
 
     company_ids = [
         r["id"] for r in conn.execute(
@@ -164,7 +166,7 @@ def _backfill_posture(conn: sqlite3.Connection) -> None:
         )
 
     cand_rows = conn.execute(
-        "SELECT id, signals_json FROM discovery_candidates WHERE ai_posture IS NULL"
+        "SELECT * FROM discovery_candidates WHERE ai_posture IS NULL"
     ).fetchall()
     for row in cand_rows:
         try:
@@ -172,9 +174,22 @@ def _backfill_posture(conn: sqlite3.Connection) -> None:
         except (json.JSONDecodeError, TypeError):
             signals = []
         res = classify_candidate(signals)
+        # Recompute discovery_score too: score_candidate() now folds in a
+        # clear-posture bonus, and dedupe skips these rows on re-discovery, so
+        # without this they'd stay permanently under-ranked in `candidates`.
+        cand = Candidate(
+            name=row["name"],
+            source=row["source"],
+            source_ref=row["source_ref"],
+            domain=row["domain"],
+            careers_url=row["careers_url"],
+            hq_location=row["hq_location"],
+            industry=row["industry"],
+            signals=signals,
+        )
         conn.execute(
-            "UPDATE discovery_candidates SET ai_posture = ? WHERE id = ?",
-            (res.posture, row["id"]),
+            "UPDATE discovery_candidates SET ai_posture = ?, discovery_score = ? WHERE id = ?",
+            (res.posture, score_candidate(cand, res), row["id"]),
         )
 
 

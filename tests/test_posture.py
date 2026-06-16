@@ -171,7 +171,8 @@ def test_backfill_posture_stamps_null_rows(tmp_path):
         [(cid, "company_policy", "mandate", 4), (cid, "tool_mandate", "rollout", 4)],
     )
     conn.execute(
-        "INSERT INTO discovery_candidates (source, source_ref, name, signals_json) VALUES ('yaml','x','Cand', ?)",
+        "INSERT INTO discovery_candidates (source, source_ref, name, domain, signals_json, discovery_score) "
+        "VALUES ('yaml','x','Cand','cand.example', ?, 2.0)",
         (json.dumps([{"signal_type": "product_integration", "signal_strength": 5}]),),
     )
     # Simulate the pre-#46 state: columns exist (migration added them) but NULL.
@@ -183,8 +184,13 @@ def test_backfill_posture_stamps_null_rows(tmp_path):
     conn.commit()
 
     co = conn.execute("SELECT ai_posture, posture_confidence FROM companies WHERE id=?", (cid,)).fetchone()
-    cand = conn.execute("SELECT ai_posture FROM discovery_candidates WHERE name='Cand'").fetchone()
+    cand = conn.execute(
+        "SELECT ai_posture, discovery_score FROM discovery_candidates WHERE name='Cand'"
+    ).fetchone()
     conn.close()
     assert co["ai_posture"] == "ai_forward"
     assert co["posture_confidence"] is not None
     assert cand["ai_posture"] == "ai_native"
+    # discovery_score recomputed (not left at the stale pre-#46 2.0): the clear
+    # posture earns the +1 bonus on top of source + signal + field weights.
+    assert cand["discovery_score"] > 2.0
