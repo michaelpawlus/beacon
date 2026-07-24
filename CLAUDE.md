@@ -76,13 +76,19 @@ tags: [job-search, beacon, generated, resume]   # `cover-letter` instead of `res
 
 **Finding artifacts from any agent:**
 
+`--json` is a **global** `oj` option, so it goes before the subcommand:
+
 ```bash
 # Last cover letter for an AI-native company
-oj query --tags job-search,cover-letter --json --limit 1
+oj --json query --tags job-search,cover-letter --limit 1
 
 # All resumes ever written
-oj query --folder "Job Search/Resumes" --json
+oj --json query --folder "Job Search/Resumes"
 ```
+
+Note: unlike `oj capture`, `oj query` currently requires `ANTHROPIC_API_KEY`
+to be set — its `Config.load()` demands a key even on a pure read path. Without
+one it raises rather than returning results.
 
 **Overrides:**
 
@@ -513,7 +519,8 @@ beacon profile resume 42 --json
 beacon profile cover-letter 42 --json
 
 # Look up the most recent generated artifact from any other agent / project
-oj query --tags job-search,cover-letter --json --limit 1
+# (--json is a global oj flag — it precedes the subcommand)
+oj --json query --tags job-search,cover-letter --limit 1
 
 # Log a video you watched with reaction and sharing fields
 beacon media add "Andrej Karpathy - Intro to LLMs" --type video --creator "Andrej Karpathy" --platform YouTube --rating 5 --tag ai --tag llm --reaction "Great mental model for how LLMs work" --shareable --share-note "Best intro to LLMs for non-technical folks" --why "Gives the team a shared mental model for how LLMs actually work" --quote "The LLM is dreaming the next token" --category "AI Adoption" --json
@@ -577,12 +584,95 @@ Read commands support composable filters (AND logic):
 - Key tables: `companies`, `ai_signals`, `leadership_signals`, `tools_adopted`, `score_breakdown`, `job_listings`, `applications`, `application_outcomes`, `work_experiences`, `projects`, `skills`, `education`, `publications_talks`, `content_drafts`, `content_calendar`, `media_log`, `network_events`, `network_contacts`, `network_contact_events`, `presentations`, `speaker_profile`, `resume_variants`, `automation_log`, `sessions`, `discovery_candidates`, `wins`, `interview_stories`, `role_targets`, `role_fit_snapshots`, `role_dispatches`, `role_market_snapshots`
 - `beacon init` must be run before first use (creates schema + seeds 38 companies)
 
-## Environment Variables
+## Environment
 
-In addition to the global env vars in `~/.zshrc` (macOS defaults to zsh; a
-`~/.bashrc` here is never sourced):
+Host: macOS (Apple Silicon). Migrated from WSL2 in July 2026 — read this before
+assuming anything about paths, shells, or state.
 
-- `CRUNCHBASE_API_KEY` — Crunchbase v4 API bearer key. Required only for `beacon companies discover --source crunchbase`; missing key returns `{"error": "CRUNCHBASE_API_KEY unset", "code": 1}` and exits 1.
+**Repo root:** `~/dev/projects/beacon`. Keep repos and the Obsidian vault out of
+`~/Documents` and `~/Desktop`: both are iCloud-synced, and iCloud and git
+corrupt each other.
+
+**Toolchain — uv only.** Never pip, never conda, never a hand-rolled venv.
+
+```bash
+uv sync                     # build the env from uv.lock
+uv run beacon <command>     # run the CLI without activating anything
+uv run pytest -q            # 1325 tests, ~5s
+uv run ruff check .
+```
+
+`.python-version` pins **3.12**. The pin is deliberate: it's the middle of the
+CI matrix, it matches the `obsidian_journal` pin (beacon shells out to its `oj`
+binary), and it keeps uv off the newest interpreter on the box, where an
+unpinned resolve can fall back to building wheels from source. CI still proves
+3.11/3.12/3.13, so the pin is a convenience, not a constraint — don't bump it
+casually to "get a newer wheel."
+
+To get a bare `beacon` on `PATH` (the hundreds of examples above assume it),
+install it as a uv tool with the feature extras:
+
+```bash
+uv tool install --editable . --force \
+  --with "httpx>=0.27.0" --with "beautifulsoup4>=4.12.0" \
+  --with "anthropic>=0.40.0" --with "python-docx>=1.1.0" --with "fpdf2>=2.7.0"
+```
+
+`--editable` is **required**, not a preference. `DEFAULT_DB_PATH` is derived
+from `Path(__file__).parent.parent.parent`, so an editable install resolves to
+this repo's `data/beacon.db` from any working directory. A non-editable install
+copies the package into the tool's own venv, and every command would silently
+read and write a *different, empty* database inside `~/.local/share/uv/tools/`.
+
+### Machine-local — NOT in git, and not recoverable from a clone
+
+| Path | What it is | If missing |
+|---|---|---|
+| `data/beacon.db` | **All accumulated state.** Wins, stories, targets, fit snapshots, applications, media log, contacts, sessions | Rebuild: `uv run beacon init` reseeds 44 companies; `uv run beacon profile import data/michael-pawlus-profile.json` restores the profile. Everything logged since is gone |
+| `.venv/` | uv-managed env | `uv sync` |
+| `~/dev/vault` | Obsidian vault — every generated resume/letter/brief lands here | Generated artifacts silently stop appearing |
+| `~/dev/projects/obsidian_journal` | Provides the `oj` binary beacon shells out to | Vault writes fail |
+
+`data/beacon.db` now exists on exactly **one machine**. It is the real record —
+back it up. `data/michael-pawlus-profile.json` and `data/beacon.toml` *are*
+tracked, which is why the profile survived the last migration; keep the JSON
+export current (`uv run beacon profile export`) so that stays true.
+
+### Environment variables
+
+These live in **`~/.zshenv`** (symlinked from `~/dev/dotfiles/zsh/.zshenv`),
+not `~/.zshrc`. That placement is load-bearing: `.zshrc` is only sourced by
+*interactive* shells, but agent tooling, cron, and launchd all run
+non-interactive ones. Beacon degrades **silently** without `OBSIDIAN_VAULT_PATH`
+— `beacon session log` skips the vault note and still exits 0 — so an
+interactive-only var produces artifacts that appear when you run a command by
+hand and vanish when an agent runs the identical command.
+
+| Var | Required for | Missing behavior |
+|---|---|---|
+| `OBSIDIAN_VAULT_PATH` | All vault writes (`--vault`, `session log`, resumes, briefs) | Silently skipped, exit 0 |
+| `ANTHROPIC_API_KEY` | LLM features: resume, cover-letter, blog, `--web` radars, and `oj query` | Deterministic commands still work; `--web` warns and exits 0 |
+| `OJ_BIN` | Only if `oj` is not on `PATH` | Not needed here — `oj` is at `~/.local/bin/oj` and beacon falls back to `shutil.which` |
+| `CRUNCHBASE_API_KEY` | `beacon companies discover --source crunchbase` | `{"error": "CRUNCHBASE_API_KEY unset", "code": 1}`, exit 1 |
+
+Everything deterministic — `career review`, `career guide`, `career market
+--no-web`, `target fit`, `materials interview-brief`, and `oj capture` — works
+with **no API key at all**.
+
+### Host traps
+
+- **Timestamps are UTC.** Every `created_at` / `computed_at` defaults to SQLite
+  `datetime('now')`, which is UTC. Compare with `beacon.util.dates.days_since`,
+  never a naive `datetime.now()` — on a non-UTC host that error goes *negative*.
+  This was invisible on the WSL2 box because its clock ran UTC.
+- **Homebrew** is `/opt/homebrew/bin` on Apple Silicon, not `/usr/local/bin`.
+- **APFS is case-insensitive**; ext4 was not. Files that coexisted on Linux can
+  collide here.
+- **BSD userland**: `sed -i`, `date -d`, `readlink -f`, `stat -c`, `grep -P`
+  all differ from GNU. Prefer doing date math in Python.
+- **Nothing is scheduled.** No crontab, no LaunchAgents. If you want
+  `beacon automation run` on a cadence, write a launchd plist — `crontab` on
+  macOS is deprecated and won't survive.
 
 ## Optional Dependencies
 
