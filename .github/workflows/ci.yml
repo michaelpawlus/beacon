@@ -21,7 +21,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install uv
-        uses: astral-sh/setup-uv@v9
+        # v7 is the newest *floating* major tag astral-sh publishes; v8/v9
+        # exist only as exact versions (v9.0.0), so `@v9` does not resolve.
+        # v7 already runs on node24, which is the point — v6 tripped the
+        # Node 20 deprecation warning on every run.
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       # --locked fails the build on a stale uv.lock instead of silently
