@@ -9,15 +9,21 @@ Beacon is a **tool for the agent** — Claude Code is the intelligence layer. Be
 ## Quick Start
 
 ```bash
+# One-time: create the env from uv.lock (installs the pinned Python if needed)
+uv sync
+
 # First-time setup (seeds 38 AI-first companies)
-beacon init
+uv run beacon init
 
 # Run tests
-.venv/bin/pytest tests/ -x -q
+uv run pytest -x -q
 
 # Lint
-.venv/bin/ruff check beacon/
+uv run ruff check .
 ```
+
+`uv run` resolves the project root and needs no activation, so there is never
+a venv to source. See [Environment](#environment) for the full contract.
 
 ## Project Structure
 
@@ -27,8 +33,7 @@ beacon init
 - **Entry point:** `beacon = "beacon.cli:main"` in `pyproject.toml`
 - **Tests:** pytest with `tmp_path` fixtures, `@patch` for mocking
 - **Lint:** ruff (line-length 120, per-file E501 ignores for seed/tests/formatters/cli)
-- **Python binary:** `python3` (not `python`) on this system
-- **pip:** requires `--break-system-packages` flag
+- **Toolchain:** uv only — never pip, never conda. Python pinned in `.python-version`
 
 ## Convention: `--json` Flag
 
@@ -581,10 +586,14 @@ In addition to the global env vars in `~/.zshrc` (macOS defaults to zsh; a
 
 ## Optional Dependencies
 
-- `pip install beacon[scraping]` — httpx + beautifulsoup4 for job scanning
-- `pip install beacon[llm]` — anthropic SDK for content generation
-- `pip install beacon[docs]` — python-docx + fpdf2 for resume rendering
-- `pip install beacon[notifications]` — plyer for desktop notifications
+Extras are opt-in; add them with `uv sync --extra <name>` (repeatable, or
+`--all-extras`). `scraping` is already pulled in by the `dev` dependency group
+because the scraper tests import httpx at collection time.
+
+- `uv sync --extra scraping` — httpx + beautifulsoup4 for job scanning
+- `uv sync --extra llm` — anthropic SDK for content generation
+- `uv sync --extra docs` — python-docx + fpdf2 for resume rendering
+- `uv sync --extra notifications` — plyer for desktop notifications
 
 ## Web UI (`web/`)
 

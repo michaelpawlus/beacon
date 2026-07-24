@@ -30,10 +30,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=7.0",
-    "ruff>=0.4.0",
-]
 scraping = [
     "httpx>=0.27.0",
     "beautifulsoup4>=4.12.0",
@@ -51,6 +47,19 @@ notifications = [
 
 [project.scripts]
 beacon = "beacon.cli:main"
+
+[dependency-groups]
+# Installed by a bare `uv sync`; not shipped to consumers of the package.
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.4.0",
+    # scraping is a test-time requirement, not just a runtime extra: the
+    # scraper test modules import beacon.scrapers.*, which import httpx at
+    # module top level, so collection fails without it. The calls themselves
+    # are mocked, so the suite stays hermetic. The other extras (llm/docs/
+    # notifications) are lazy-imported and mocked, so they stay opt-in.
+    "beacon[scraping]",
+]
 
 [tool.ruff]
 line-length = 120

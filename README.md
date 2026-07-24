@@ -22,26 +22,26 @@ Every company in this database is scored on five dimensions:
 ## Quick Start
 
 ```bash
-# Clone and install
+# Clone and install (uv installs the pinned Python automatically)
 git clone https://github.com/michaelpawlus/beacon.git
 cd beacon
-pip install -e .
+uv sync
 
 # Initialize database with seed data (38 companies)
-beacon init
+uv run beacon init
 
 # List all companies by AI-first score
-beacon companies
+uv run beacon companies
 
 # Show detailed info for a company
-beacon show Shopify
+uv run beacon show Shopify
 
 # Export as markdown
-beacon export markdown
+uv run beacon export markdown
 
 # Export as CSV or JSON
-beacon export csv --output companies.csv
-beacon export json --min-score 7
+uv run beacon export csv --output companies.csv
+uv run beacon export json --min-score 7
 ```
 
 ## Phase 2: Job Scanner
@@ -50,7 +50,7 @@ Beacon now scans career pages for job listings, scores them for relevance, and g
 
 ```bash
 # Install scraping dependencies
-pip install -e ".[scraping]"
+uv sync --extra scraping
 
 # Scan all career pages
 beacon scan
@@ -110,10 +110,10 @@ Beacon generates tailored application materials using your professional profile 
 
 ```bash
 # Install LLM dependencies
-pip install -e ".[llm]"
+uv sync --extra llm
 
 # Optional: PDF and DOCX rendering
-pip install -e ".[docs]"
+uv sync --extra docs
 
 # Set your Anthropic API key
 export ANTHROPIC_API_KEY=sk-ant-...

@@ -6,10 +6,10 @@ A step-by-step walkthrough to get up and running with Beacon.
 
 ```bash
 # Install beacon with all optional dependencies
-pip install -e ".[dev,scraping,llm,docs]"
+uv sync --all-extras
 
 # Initialize the database with 38+ AI-first companies
-beacon init
+uv run beacon init
 ```
 
 Verify: `beacon stats` should show companies, signals, and tools.
