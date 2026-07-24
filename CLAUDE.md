@@ -574,7 +574,8 @@ Read commands support composable filters (AND logic):
 
 ## Environment Variables
 
-In addition to the global env vars in `~/.bashrc`:
+In addition to the global env vars in `~/.zshrc` (macOS defaults to zsh; a
+`~/.bashrc` here is never sourced):
 
 - `CRUNCHBASE_API_KEY` — Crunchbase v4 API bearer key. Required only for `beacon companies discover --source crunchbase`; missing key returns `{"error": "CRUNCHBASE_API_KEY unset", "code": 1}` and exits 1.
 
