@@ -17,9 +17,10 @@ attributes that make real FDEs successful.
 import json
 import re
 import sqlite3
-from datetime import date, datetime
+from datetime import date
 
 from beacon.research.skill_gaps import SKILL_ALIASES, SKILL_CATEGORIES, _normalize_skill
+from beacon.util.dates import days_since
 
 HORIZONS = ("1y", "2y", "3y", "4y")
 TARGET_STATUSES = ("active", "achieved", "dropped")
@@ -394,8 +395,7 @@ def latest_snapshot_age_days(conn: sqlite3.Connection) -> int | None:
     ).fetchone()
     if not row or not row["latest"]:
         return None
-    latest = datetime.fromisoformat(row["latest"])
-    return (datetime.now() - latest).days
+    return days_since(row["latest"])
 
 
 def targets_needing_fit(conn: sqlite3.Connection) -> list[dict]:
@@ -408,7 +408,7 @@ def targets_needing_fit(conn: sqlite3.Connection) -> list[dict]:
         if last is None:
             needing.append({**t, "snapshot_age_days": None})
             continue
-        age = (datetime.now() - datetime.fromisoformat(last)).days
+        age = days_since(last)
         if age > SNAPSHOT_STALE_DAYS:
             needing.append({**t, "snapshot_age_days": age})
     return needing

@@ -4,6 +4,8 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
+from beacon.util.dates import days_since, format_sqlite, utcnow
+
 
 @dataclass
 class DashboardData:
@@ -107,8 +109,7 @@ def _get_presence_health(conn: sqlite3.Connection) -> dict[str, dict]:
         "SELECT created_at FROM content_drafts ORDER BY created_at DESC LIMIT 1"
     ).fetchone()
     if last_draft:
-        created = datetime.fromisoformat(last_draft["created_at"])
-        days_ago = (datetime.now() - created).days
+        days_ago = days_since(last_draft["created_at"])
         content_status = "green" if days_ago <= 7 else "yellow" if days_ago <= 14 else "red"
         content_label = f"{days_ago}d ago"
     else:
@@ -228,7 +229,7 @@ def _generate_action_items(conn: sqlite3.Connection) -> list[str]:
     items.extend(_market_action_items(conn))
 
     # New high-relevance jobs
-    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+    yesterday = format_sqlite(utcnow() - timedelta(days=1))
     new_relevant = conn.execute(
         """SELECT COUNT(*) as cnt FROM job_listings
            WHERE date_first_seen >= ? AND relevance_score >= 8.0 AND status = 'active'""",

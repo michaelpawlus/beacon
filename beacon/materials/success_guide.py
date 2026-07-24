@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections import Counter
-from datetime import date, datetime
+from datetime import date
 
 from beacon.career import category_mix, current_role, list_wins, resolve_since
 from beacon.db.profile import get_skills
@@ -36,6 +36,7 @@ from beacon.market import (
 )
 from beacon.research.skill_gaps import _normalize_skill
 from beacon.targets import analyze_target_gaps
+from beacon.util.dates import days_since
 
 # The static framing that opens every guide. Kept here (not in the DB) because
 # it's the unchanging thesis, not data — the rest of the guide is the evidence
@@ -65,10 +66,9 @@ def _snapshot_age_days(captured_at: str | None) -> int | None:
     if not captured_at:
         return None
     try:
-        ts = datetime.fromisoformat(captured_at.replace("Z", ""))
+        return days_since(captured_at.replace("Z", ""))
     except ValueError:
         return None
-    return (datetime.utcnow() - ts).days
 
 
 def _parse_json_list(value) -> list:

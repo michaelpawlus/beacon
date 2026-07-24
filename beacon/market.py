@@ -37,11 +37,12 @@ import json
 import re
 import sqlite3
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 
 from beacon.research.job_fit import _detect_seniority, _heuristic_extract
 from beacon.research.job_highlights import extract_highlights
 from beacon.research.skill_gaps import _normalize_skill
+from beacon.util.dates import days_since, format_iso, utcnow
 
 # ---------------------------------------------------------------------------
 # Role-family taxonomy — titles that mean "roughly the same job"
@@ -612,7 +613,7 @@ def build_market_snapshot(
     payload = {
         "family": family.key,
         "label": family.label,
-        "captured_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "captured_at": format_iso(utcnow()),
         "since_days": since_days,
         "web_enabled": web,
         "listings": listings_block,
@@ -750,10 +751,9 @@ def market_snapshot_age_days(conn: sqlite3.Connection) -> int | None:
     if not row or not row["latest"]:
         return None
     try:
-        latest = datetime.fromisoformat(row["latest"].replace("Z", ""))
+        return days_since(row["latest"].replace("Z", ""))
     except ValueError:
         return None
-    return (datetime.utcnow() - latest).days
 
 
 # ---------------------------------------------------------------------------

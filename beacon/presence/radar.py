@@ -24,7 +24,9 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from datetime import date, datetime
+from datetime import date
+
+from beacon.util.dates import format_iso, utcnow
 
 # Source weights — how much a kind of artifact is worth posting about, all else equal.
 _SOURCE_WEIGHT = {
@@ -459,7 +461,7 @@ def build_radar(
     )
 
     payload = {
-        "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "generated_at": format_iso(utcnow()),
         "since_days": since_days,
         "web_enabled": web,
         "trending": trending,
